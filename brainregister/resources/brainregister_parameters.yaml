@@ -1,0 +1,127 @@
+---
+#####################################
+### BRAINREGISTER PARAMETERS FILE ###
+#####################################
+
+# The sample template defines the template and associated images for registration
+#   path: Relative path to a VALID SAMPLE TEMPLATE IMAGE
+#            This image is used for optimising registration to ccf-template
+#   images: Additional images to be transformed during registration.  
+#            MUST reside in same DIR as sample-template-path
+#   resolution: image resolution in XYZ
+#   location - Approximate location of the sample template in the ccf-template space.
+#       structure: What structure is in the sample template.
+#           Allen CCF: break whole CNS into 16 quadrants (4 coronal, 2 sagittal, 2 horizontal)
+#             CNS-<LT,RT>-<OLF,FB,MB,HB>-<UPPER,LOWER>
+#       orientation: How is the sample-template oriented
+#           Specify which AXIS and its DIRECTION each image dimension is (XYZ) -> LR:SI:PA
+#               mediolateral: <LR,RL> for left/right direction
+#               dorsoventral: <SI,IS> for superior/inferior direction
+#               anteroposterior: <AP,PA> for anterior/posterior direction
+#           Note: How these parameters relate to the ccf-template is given in the 
+#             ccf-template/ directory in brainregister.
+#           See documentation: 
+sample-template-path: "default/path.nrrd"
+sample-images:
+- "img1.nrrd"
+- "img2.nrrd"
+sample-template-resolution:
+  x-um: 0.0
+  y-um: 0.0
+  z-um: 0.0
+sample-template-structure: "CNS"
+sample-template-orientation: "LR:SI:PA"
+
+
+# fullstack-to-downsampled defines the transform from fullstack to the downsampled image space
+#   path: Path (relative to this YAML file) to directory where downsample stacks will be stored.  The parent DIR must exist!
+#   ccf-path: "brainregister_allen_ccf" defines the built-in ccf (Allen CCF, with IBL Atlas)
+#               This defines the downsampled stack RESOLUTION in XYZ
+#               Can define own ccf and point to its directory here
+#               See documentation:
+#   adaptive-filter: Boolean to indicate whether an adaptive (median) filter should be applied prior to downsampling.
+#                       RECOMMENDED - even if not saving the downsampled image, this filtered image is used for further
+#                           registration!
+#   transform-params-filename: name of transform params file to be saved to path.
+#   save-images: Boolean to indicate whether the downsampled images should be saved to disk.
+#   prefix: string put on the front of each filename to denote fullstack-to-downsampled image.
+#   save-image-type: MUST be a VALID simpleITK image type : nrrd, tiff, mhd 
+#                     see https://simpleitk.readthedocs.io/en/master/IO.html
+fullstack-to-downsampled-path: "fullstack_to_downsampled"
+fullstack-to-downsampled-ccf-path: "brainregister_allen_ccf"
+fullstack-to-downsampled-adaptive-filter: True
+fullstack-to-downsampled-transform-params-filename: "fullstack-to-downsampled.txt"
+fullstack-to-downsampled-save-template: True
+fullstack-to-downsampled-save-images: True
+fullstack-to-downsampled-prefix: "ds_"
+fullstack-to-downsampled-save-image-type: "nrrd"
+
+
+# downsampled-to-fullstack defines the transform from downsampled to the fullstack image space - transformation of the CCF.
+#   path: Path (relative to this YAML file) to directory where downsample stacks will be stored.  The parent DIR must exist!
+#   transform-params-filename: name of transform params file to be saved to path.
+#   save-template: Boolean to indicate whether the CCF's transformed 
+#                                       template image should be saved to disk.
+#   save-annotation: Boolean to indicate whether the CCF's transformed 
+#                                       annotation image should be saved to disk.
+#   prefix: string put on the front of each filename to denote downsampled-to-fullstack image.
+#   save-image-type: MUST be a VALID simpleITK image type : nrrd, tiff, mhd 
+#                     see https://simpleitk.readthedocs.io/en/master/IO.html
+downsampled-to-fullstack-path: "downsampled_to_fullstack"
+downsampled-to-fullstack-transform-params-filename: "downsampled-to-fullstack.txt"
+downsampled-to-fullstack-save-template: False
+downsampled-to-fullstack-save-annotation: True
+downsampled-to-fullstack-prefix: "fs_"
+downsampled-to-fullstack-save-image-type: "nrrd"
+
+
+# downsampled-to-ccf defines the registration and transform from downsampled to the CCF image space
+#   path: Path (relative to this YAML file) to directory where registration & transforms will be stored.  The parent DIR must exist!
+#   parameters-file: "brainregister_affine_bspline" defines the built-in elastix parameters files for registration
+#                       These are an affine then bspline transform.
+#                       Can define relative path to own elastix parameters files here if desired, add each file to the
+#                       list
+#   prefilter: String to indicate whether an adaptive (median) filter should be applied prior to downsampling. 
+#               Default is median filter with radius 4. Turn off prefilter by setting value to "none".
+#   transform-params-filename: name of transform params file to be saved to path.
+#   save-images: Boolean to indicate whether the transformed images should be saved to disk.
+#   prefix: string put on the front of each filename to denote downsampled-to-ccf image.
+#   save-image-type: MUST be a VALID simpleITK image type : nrrd, tiff, mhd 
+#                     see https://simpleitk.readthedocs.io/en/master/IO.html
+downsampled-to-ccf-path: "downsampled_to_ccf"
+downsampled-to-ccf-prefilter: "adaptive" # median_4
+downsampled-to-ccf-parameters-files:
+- "brainregister_affine"
+- "brainregister_bspline"
+downsampled-to-ccf-transform-params-filenames:
+- "brainregister-affine_downsampled-to-ccf.txt"
+- "brainregister-bspline_downsampled-to-ccf.txt"
+downsampled-to-ccf-save-template: True
+downsampled-to-ccf-save-images: True
+downsampled-to-ccf-prefix: "CCF_"
+downsampled-to-ccf-save-image-type: "nrrd"
+
+
+# ccf-to-downsampled defines the registration and transform from CCF to the downsampled image space
+#   path: Relative path to directory where registration & transforms will be stored.  Parent DIR must exist!
+#   parameters-file: "brainregister_allen_ccf" defines the built-in elastix parameters files for registration
+#                      Can define relative path to own elastix parameters files here if desired
+#   prefilter: String to indicate whether an adaptive (median) filter should be applied prior to downsampling.
+#               Default is median filter with radius 4
+#   transform-params-filename: name of transform params file to be saved to path.
+#   save-annotation: Boolean to indicate whether the CCF's transformed annotation image should be saved to disk.
+#   prefix: string put on the front of each filename to denote ccf-to-downsampled image.
+#   save-image-type: MUST be a VALID simpleITK image type : nrrd, tiff, mhd 
+#                     see https://simpleitk.readthedocs.io/en/master/IO.html
+ccf-to-downsampled-path: "ccf_to_downsampled"
+ccf-to-downsampled-prefilter: "adaptive" # median_4
+ccf-to-downsampled-parameters-files:
+- "brainregister_affine"
+- "brainregister_bspline"
+ccf-to-downsampled-transform-params-filenames:
+- "brainregister-affine_ccf-to-downsampled.txt"
+- "brainregister-bspline_ccf-to-downsampled.txt"
+ccf-to-downsampled-save-template: False
+ccf-to-downsampled-save-annotation: True
+ccf-to-downsampled-prefix: "DS_"
+ccf-to-downsampled-save-image-type: "nrrd"
