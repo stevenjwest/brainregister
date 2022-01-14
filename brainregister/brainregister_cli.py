@@ -85,7 +85,7 @@ def main():
     parser.add_argument('-y', '--yaml', action='store_true',
                         help='Create new template brainregister-parameter YAML file.')
     
-    parser.add_argument('file_path', 
+    parser.add_argument('file_path', type = str, 
                         help=textwrap.dedent('''\
             Specify a file path: if --yaml arg is passed, this file path should 
             point to the sample-template image (the image on which the 
@@ -93,15 +93,25 @@ def main():
             should point to a brainregister-parameters.yaml file.
             ''') )
     
+    parser.add_argument('-d', '--dirpath', type = str, 
+                        help=textwrap.dedent('''\
+            Specify the relative directory path where the brainregister parameters 
+            file is to be stored.  Setting this parameter only affects the location of
+            the brainregister_parameters.yaml file.  The default is ./brainregister/
+            '''))
+    
     
     args = parser.parse_args()
     
     # process data according to yaml and filepath args
-    process(args.yaml, Path(args.file_path) )
+    if args.dirpath:
+        process(args.yaml, Path(args.file_path), args.dirpath )
+    else:
+        process(args.yaml, Path(args.file_path), 'brainregister' )
 
 
 
-def process(yaml, file_path):
+def process(yaml, file_path, brainregister_dir):
     '''Process : admin function to call create_parameters_file() of register()
 
     If yaml is true create a brainregister_parameters file, otherwise 
@@ -129,7 +139,8 @@ def process(yaml, file_path):
     from brainregister import BrainRegister
     
     if yaml:
-        brainregister.create_brainregister_parameters_file( Path(file_path) )
+        brainregister.create_parameters_file( Path(file_path), 
+                                             output_dir = Path(brainregister_dir) )
     else:
         br = BrainRegister(Path(file_path))
         br.register()

@@ -2,7 +2,7 @@
 (CompressResultImage "false")
 (DefaultPixelValue 0.000000)
 (Direction 1.000000 0.000000 0.000000 0.000000 1.000000 0.000000 0.000000 0.000000 1.000000)
-(FinalBSplineInterpolationOrder 3.000000)
+(FinalBSplineInterpolationOrder 5.000000)
 (FixedImageDimension 3.000000)
 (FixedInternalImagePixelType "float")
 (HowToCombineTransforms "Compose")

@@ -7,7 +7,7 @@ registration parameters and the Allen CCFv3 mouse brian atlas.
 """
 
 # package metadata
-__version__ = '0.1.0'
+__version__ = '0.9.0'
 __author__ = 'Steven J. West'
 
 # package imports
@@ -29,7 +29,7 @@ def version():
     print("  Author : "+__author__)
 
 
-def create_brainregister_parameters_file(sample_template_path, 
+def create_parameters_file(sample_template_path, 
             output_dir = Path('brainregister'),
             brainregister_params_template_path = 'brainregister_params', 
             brainregister_params_filename = 'brainregister_parameters.yaml'):
@@ -86,6 +86,14 @@ def create_brainregister_parameters_file(sample_template_path,
 
     '''
     
+    print('')
+    print('')
+    print('================================')
+    print('CREATE BRAINREGISTER PARAMS FILE')
+    print('================================')
+    print('')
+    
+    
     # RESOLVE the path- remove any .. references and convert to absolute path
     sample_template_path_res = sample_template_path.resolve()
     
@@ -93,6 +101,8 @@ def create_brainregister_parameters_file(sample_template_path,
     # AND convert to STRING
     stp = str(sample_template_path.expanduser().absolute() )
     
+    print('  reading source template image information..')
+    print('')
     # try to read image header with sitk
     reader = sitk.ImageFileReader()
     reader.SetFileName( stp )
@@ -100,11 +110,14 @@ def create_brainregister_parameters_file(sample_template_path,
     try:
         reader.ReadImageInformation()
     except:
-        print('The input file is not a valid image: ', stp)
+        print('\033[1;31m ERROR : The input file is not a valid image: '
+                + stp + ' \033[0;0m')
         sys.exit('input file not valid')
     
     # if image is valid to sitk.reader this will pass
     
+    print('  creating brainregister output directory : ' + str(output_dir) )
+    print('')
     # next - resolve and create output_dir
     output_dir.resolve().mkdir(parents=True, exist_ok=True)
     # this is where the brainregister_parameters.yaml file will be written
@@ -113,6 +126,7 @@ def create_brainregister_parameters_file(sample_template_path,
         + os.path.sep
         + brainregister_params_filename)
     
+    print('  building brainregister parameters file..')
     # next - build the yaml file
     if brainregister_params_template_path == 'brainregister_params':
         # open the brainregister template from resources/ dir in brainregister package
@@ -130,14 +144,22 @@ def create_brainregister_parameters_file(sample_template_path,
         with open(brainregister_params_template_path, 'r') as file:
             brp = yaml.safe_load(file)
     
+    brp_keys = list(brp.keys())
     
     # MODIFY PARAMETERS
     
+    print('    adding template path : ' + 
+                  sample_template_path_res.stem +
+                  sample_template_path_res.suffix )
     # set sample-template-path to stp
-    brp['sample-template-path'] = os.path.relpath(
+    brp['source-template-path'] = os.path.relpath(
                 sample_template_path_res, 
                 output_dir.resolve().expanduser().absolute()  )
     
+    brp['source-annotations-path'] = [] # set to blank, user can modify manually as needed
+    brp['source-structure-tree'] = [] # set to blank, user can modify manually as needed
+    
+    print('    adding image paths..')
     # get other files with same suffix as stp in parent dir
     fn, ext = os.path.splitext(sample_template_path_res.name)
     files = glob.glob( 
@@ -146,24 +168,46 @@ def create_brainregister_parameters_file(sample_template_path,
             + "*" 
             + ext) )
     # filter to remove the current sample_template_path and extract just the name(s)
-    filenames = [Path(f).name for f in files if f != str(sample_template_path_res.expanduser().absolute()) ]
+    filenames = [Path(f).name for f in files if f != str(
+                    sample_template_path_res.expanduser().absolute()) ]
     
-    brp['sample-images'] = filenames
+    source_path_keys = [b for b in brp_keys if (
+                                b.startswith('source-') 
+                            and b.endswith('-path') 
+                        and not b.startswith('source-template-path')
+                        and not b.startswith('source-annotations-path') ) ]
     
-    # set output dirs to parent of sample-template - NOT NEEDED NOW as set correctly by default
-    #brp['downsampled-stacks-path'] = str(
-    #    str(sample_template_path.parent.expanduser().absolute() ) + 
-    #          os.path.sep + 'downsample_stacks')
+    for s in source_path_keys: # add image files to source_images_keys
+        brp[s] = filenames
     
-    #brp['ccf-to-sample-path'] = str(
-    #    str(sample_template_path.parent.expanduser().absolute() ) + 
-    #          os.path.sep + 'ccf_to_sample')
     
-    #brp['sample-to-ccf-path'] = str(
-    #    str(sample_template_path.parent.expanduser().absolute() ) + 
-    #          os.path.sep + 'sample_to_ccf')
+    print('    adding source template image resolution..')
     
-    # write to yaml file
+    if any([r == 1.0 for r in reader.GetSpacing()]):
+        print('')
+        print('\033[1;31m TEMPLATE RESOLUTION NOT FOUND : '+
+              'Please add manually to the brainregister params file! \033[0;0m')
+        print('')
+    else:
+        print('      adding x-um : ' + str(reader.GetSpacing()[0]) )
+        brp['source-template-resolution']['x-um'] = reader.GetSpacing()[0]
+        print('      adding y-um : ' + str(reader.GetSpacing()[1]) )
+        brp['source-template-resolution']['y-um'] = reader.GetSpacing()[1]
+        print('      adding z-um : ' + str(reader.GetSpacing()[2]) )
+        brp['source-template-resolution']['z-um'] = reader.GetSpacing()[2]
+    
+    
+    print('    adding source template image size..')
+    
+    print('      adding x-um : ' + str(reader.GetSize()[0]) )
+    brp['source-template-size']['x'] = reader.GetSize()[0]
+    print('      adding y-um : ' + str(reader.GetSize()[1]) )
+    brp['source-template-size']['y'] = reader.GetSize()[1]
+    print('      adding z-um : ' + str(reader.GetSize()[2]) )
+    brp['source-template-size']['z'] = reader.GetSize()[2]
+    
+    
+    print('    saving brainregister parameters file..')
     with open(brainregister_params_path, 'w') as file:
         yaml.dump(brp, file, sort_keys=False)
     
@@ -175,27 +219,31 @@ def create_brainregister_parameters_file(sample_template_path,
         
         # get index of sample-template-orientation 
          # as sample-images length can VARY!
-        sil = [i for i, s in enumerate(brpf2) if 'sample-template-orientation' in s]
+        sil = [i for i, s in enumerate(brpf2) if 'source-template-orientation' in s]
         
         # get index of downsampled-to-ccf-save-images
          # as downsampled-to-ccf-parameters-files length can VARY!
-        pfld = [i for i, s in enumerate(brpf2) if 'downsampled-to-ccf-save-images' in s]
+        pfld = [i for i, s in enumerate(brpf2) if 'source-to-target-save-image-type' in s]
         
         # get index of ccf-to-downsampled-save-annotation
          # as ccf-to-downsampled-parameters-files length can VARY!
-        pflc = [i for i, s in enumerate(brpf2) if 'ccf-to-downsampled-save-annotation' in s]
+        pflc = [i for i, s in enumerate(brpf2) if 'target-to-source-save-image-type' in s]
         
         # concat comments and yaml lines into one list:
-        brpf3 = [ brpf[0:23] + # sample-template comments
-                  brpf2[ 0:(sil[0]+1) ] + # sample-template data
-                  brpf[33:49] + # fullstack-to-downsampled comments
-                  brpf2[ (sil[0]+1):(sil[0]+9)] + # fullstack-to-downsampled data
-                  brpf[57:69] + # downsampled-to-fullstack comments
-                  brpf2[ (sil[0]+9):(sil[0]+15)] + # downsampled-to-fullstack data
-                  brpf[75:90] + # downsampled-to-ccf comments
-                  brpf2[(sil[0]+15):(pfld[0]+3)] + # downsampled-to-ccf data
-                  brpf[100:113] + # ccf-to-downsampled comments
-                  brpf2[(pfld[0]+3):(pflc[0]+3)] # ccf-to-downsampled data
+        brpf3 = [ brpf[0:53] + # source- image space comments
+                  brpf2[ 0:(sil[0]+1) ] + # source- params
+                  brpf[71:87] + # target- image space comments
+                  brpf2[ (sil[0]+1):(sil[0]+3)] + # target- params
+                  brpf[89:117] + # downsampling- general comments
+                  brpf2[ (sil[0]+3):(sil[0]+6)] + # downsampling- general params
+                  brpf[120:146] + # downsampling- output comments
+                  brpf2[ (sil[0]+6):(sil[0]+11)] + # source-to-target downsampling output params
+                  brpf[151:152] + # blank line!
+                  brpf2[ (sil[0]+11):(sil[0]+16)] + # target-to-source downsampling output params
+                  brpf[157:206] + # source-to-target comments
+                  brpf2[(sil[0]+16):(pfld[0]+1)] + # source-to-target params
+                  brpf[219:268] + # target-to-source comments
+                  brpf2[ (pfld[0]+1):(pflc[0]+1)] # target-to-source params
                                                           ]
         brpf3 = brpf3[0] # remove the nesting of this list
         
@@ -204,16 +252,17 @@ def create_brainregister_parameters_file(sample_template_path,
             for b in brpf3:
                 file.write('%s' % b)
         
-        print('  written brainregister_parameters.yaml file to : ') 
-        print('    ', os.path.relpath(
-                brainregister_params_path, 
-                os.getcwd()  ) )
+        print('      written brainregister_parameters.yaml file : ' +
+               os.path.relpath(brainregister_params_path, os.getcwd()  ) )
+        
     else:
         print('  written custom brainregister parameters yaml file', brainregister_params_template_path)
     
     # return the yaml file dict
     return brp
     
+
+
 
 
 
@@ -239,15 +288,19 @@ class BrainRegister(object):
     
     def register(self):
         
-        self.register_transform_fullstack_to_downsampled()
+        self.register_transform_highres_to_downsampled()
         
-        self.register_downsampled_to_ccf()
-        self.transform_downsampled_to_ccf()
+        self.register_source_to_target()
+        self.transform_source_to_target()
         
-        self.register_ccf_to_downsampled()
-        self.transform_ccf_to_downsampled()
+        self.register_target_to_source()
+        self.transform_target_to_source()
         
-        self.transform_downsampled_to_fullstack()
+        self.transform_lowres_to_downsampled()
+        
+        self.save_target_params()
+        
+    
     
     
     
@@ -271,17 +324,16 @@ class BrainRegister(object):
         print('  resolving output DIR paths..')
         self.resolve_dirs()
         
-        # paths to sample template and sample images
-        print('  resolving sample template and image paths..')
-        self.resolve_image_paths()
-        
-        
-        print('  resolving parameter file paths..')
-        self.resolve_param_paths()
+        # paths to source template and images
+        print('  resolving source template and image paths..')
+        self.resolve_source_params()
         
         # paths to ccf params and ccf template + annotation imagess
-        print('  resolving ccf template and annotation paths..')
-        self.resolve_ccf_params()
+        print('  resolving target template and image paths..')
+        self.resolve_target_params()
+        
+        print('  resolving elastix & transformix parameter file paths..')
+        self.resolve_params()
         
         print('')
         
@@ -314,11 +366,15 @@ class BrainRegister(object):
         with open(self.yaml_path, 'r') as file:
             self.brp = yaml.safe_load(file)
         
+        self.brp_keys = list(self.brp.keys())
         # check the resolutions have been set to something other than 0.0 (which is the default)
-        if ( (self.brp['sample-template-resolution']['x-um'] == 0.0) | 
-            (self.brp['sample-template-resolution']['y-um'] == 0.0) | 
-            (self.brp['sample-template-resolution']['z-um'] == 0.0) ) :
+        if ( (self.brp['source-template-resolution']['x-um'] == 0.0) | 
+            (self.brp['source-template-resolution']['y-um'] == 0.0) | 
+            (self.brp['source-template-resolution']['z-um'] == 0.0) ) :
             print('')
+            print('\033[1;31m ERROR : ' + 
+                  ' image resolution not set in brainregister_params : ' + 
+                      self.yaml_path + ' \033[0;0m')
             print('')
             sys.exit( str('ERROR :  image resolution not set in brainregister_params : ' + 
                       self.yaml_path) )
@@ -336,31 +392,41 @@ class BrainRegister(object):
 
         '''
         
-        self.ds_fs_dir = Path( str(self.brp_dir) 
+        self.src_tar_dir = Path( str(self.brp_dir) 
                        + os.path.sep
-                       + self.brp['downsampled-to-fullstack-path'] )
+                       + self.brp['source-to-target-output'] )
         
-        self.fs_ds_dir = Path( str(self.brp_dir) 
+        self.tar_src_dir = Path( str(self.brp_dir) 
                        + os.path.sep
-                       + self.brp['fullstack-to-downsampled-path'] )
+                       + self.brp['target-to-source-output'] )
         
-        self.ds_ccf_dir = Path( str(self.brp_dir) 
-                       + os.path.sep
-                       + self.brp['downsampled-to-ccf-path'] )
+        # get downsampling output
+        self.src_tar_ds = (self.brp['source-to-target-downsampling-output'] is not False)
         
-        self.ccf_ds_dir = Path( str(self.brp_dir) 
+        self.src_tar_ds_dir = None
+        if self.src_tar_ds is True:
+            self.src_tar_ds_dir = Path( str(self.brp_dir) 
                        + os.path.sep
-                       + self.brp['ccf-to-downsampled-path'] )
+                       + self.brp['source-to-target-downsampling-output'] )
+        
+        
+        self.tar_src_ds = (self.brp['target-to-source-downsampling-output'] is not False)
+        
+        self.tar_src_ds_dir = None
+        if self.tar_src_ds is True:
+            self.tar_src_ds_dir = Path( str(self.brp_dir) 
+                       + os.path.sep
+                       + self.brp['target-to-source-downsampling-output'] )
         
         
     
     
-    def resolve_image_paths(self):
+    def resolve_source_params(self):
         '''
-        Resolve the sample image paths
+        Resolve source image paths
         
-        Also instantiate object variables for sample template image in fullstack,
-        downsampled, and ccf spaces - initially set to None.
+        Also instantiate object variables for source template image in source,
+        downsampled, and target spaces - initially set to None.
 
         Returns
         -------
@@ -368,81 +434,399 @@ class BrainRegister(object):
 
         '''
         
-        # sample template path
-        self.template_path = Path( 
+        self.source_template_path = Path( 
             str(self.brp_dir) + 
             os.path.sep + 
-            self.brp['sample-template-path'] ).resolve()
+            self.brp['source-template-path'] ).resolve()
+        
+        self.source_template_path_ds = None
+        if self.src_tar_ds is True:
+            self.source_template_path_ds = Path( 
+                str(self.src_tar_ds_dir) + 
+                os.path.sep  + 
+                self.brp['downsampling-prefix'] + 
+                Path(os.path.basename(
+                            self.brp['source-template-path'])).stem + 
+                '.' + 
+                self.brp['downsampling-save-image-type'] )
         
         
-        self.template_path_ds = Path( 
-            str(self.fs_ds_dir) + 
+        self.source_template_path_target = Path( 
+            str(self.src_tar_dir) + 
             os.path.sep  + 
-            self.brp['fullstack-to-downsampled-prefix'] + 
+            self.brp['source-to-target-prefix'] + 
             Path(os.path.basename(
-                            self.brp['sample-template-path'])).stem + 
+                            self.brp['source-template-path'])).stem +
             '.' + 
-            self.brp['fullstack-to-downsampled-save-image-type'] )
-        
-        self.template_path_ds_ccf = Path( 
-            str(self.ds_ccf_dir) + 
-            os.path.sep  + 
-            self.brp['downsampled-to-ccf-prefix'] + 
-            self.brp['fullstack-to-downsampled-prefix'] + 
-            Path(os.path.basename(
-                            self.brp['sample-template-path'])).stem +
-            '.' + 
-            self.brp['downsampled-to-ccf-save-image-type'] )
+            self.brp['source-to-target-save-image-type'] )
         
         
-        # sample images paths - only if not lbank
-        if not self.brp['sample-images']:
-            # empty list - no additional images
-            self.sample_images = []
-            self.sample_images_ds = []
-            self.sample_images_ds_ccf = []
-        else:
+        source_path_keys = [b for b in self.brp_keys if (
+                                    b.startswith('source-') 
+                                and b.endswith('-path') 
+                            and not b.startswith('source-template-path') ) ]
+        
+        
+        self.source_anno_path = []
+        self.source_anno_path_ds = []
+        self.source_anno_path_target = []
+        
+        if ( ('source-annotations-path' in source_path_keys) and
+            (len(self.brp['source-annotations-path']) > 0) ):
             
-            self.sample_images = [Path( 
-                str(self.template_path.parent) 
+            for sap in self.brp['source-annotations-path']:
+                
+                self.source_anno_path.append(  Path( 
+                    str(self.brp_dir) + 
+                    os.path.sep + sap ).resolve() )
+                
+                if self.src_tar_ds is True:
+                    self.source_anno_path_ds.append( Path( 
+                        str(self.src_tar_ds_dir) + 
+                        os.path.sep  + 
+                        self.brp['downsampling-prefix'] + 
+                        Path(os.path.basename(sap)).stem + 
+                        '.' + 
+                        self.brp['downsampling-save-image-type'] ) )
+                    
+                self.source_anno_path_target.append( Path( 
+                    str(self.src_tar_dir) + 
+                    os.path.sep  + 
+                    self.brp['source-to-target-prefix'] + 
+                    Path(os.path.basename(sap)).stem +
+                    '.' + 
+                    self.brp['source-to-target-save-image-type'] ) )
+        
+        
+        # and structure trees!
+        self.source_tree_path = []
+        self.source_tree_path_ds = []
+        self.source_tree_path_target = []
+        
+        if ((len(self.brp['source-structure-tree']) > 0) ):
+            
+            for sst in self.brp['source-structure-tree']:
+                
+                self.source_tree_path.append(  Path( 
+                    str(self.brp_dir) + 
+                    os.path.sep + sst ).resolve() )
+                
+                if self.src_tar_ds is True:
+                    self.source_tree_path_ds.append( Path( 
+                        str(self.src_tar_ds_dir) + 
+                        os.path.sep  + 
+                        self.brp['downsampling-prefix'] + sst ) )
+                    
+                self.source_tree_path_target.append( Path( 
+                    str(self.src_tar_dir) + 
+                    os.path.sep  + 
+                    self.brp['source-to-target-prefix'] + sst ) )
+        
+        
+        
+        # gen without template or annotation
+        source_path_keys = [b for b in self.brp_keys if (
+                                    b.startswith('source-') 
+                                and b.endswith('-path') 
+                            and not b.startswith('source-template-path')
+                            and not b.startswith('source-annotations-path') ) ]
+        
+        self.source_image_path = []
+        for s in source_path_keys:
+            if self.brp[s]: # only add if not blank
+            
+                self.source_image_path.append(
+                    [Path( 
+                str(self.source_template_path.parent) 
                 + os.path.sep 
-                + str(s)) for s in self.brp['sample-images'] ]
+                + str(sr)) for sr in self.brp[s] ]
+                     )
+                
+        
+        self.source_image_path_ds = []
+        self.source_image_path_target = []
+        if self.source_image_path: # only flatten list if not empty!
             
-            self.sample_images_ds = [Path( 
-            str(self.fs_ds_dir) + 
-            os.path.sep  + 
-            self.brp['fullstack-to-downsampled-prefix'] + 
-            Path(os.path.basename(s)).stem +
-            '.' + 
-            self.brp['fullstack-to-downsampled-save-image-type'] ) for s in self.brp['sample-images'] ]
+            self.source_image_path = [item for sublist in self.source_image_path for item in sublist]
             
-            self.sample_images_ds_ccf = [Path( 
-            str(self.ds_ccf_dir) + 
-            os.path.sep  + 
-            self.brp['downsampled-to-ccf-prefix'] + 
-            self.brp['fullstack-to-downsampled-prefix'] + 
-            Path(os.path.basename(s)).stem +
-            '.' + 
-            self.brp['downsampled-to-ccf-save-image-type'] ) for s in self.brp['sample-images'] ]
+            for s in self.source_image_path:
+                if self.src_tar_ds is True:
+                    self.source_image_path_ds.append( Path( 
+                        str(self.src_tar_ds_dir) + 
+                        os.path.sep  + 
+                        self.brp['downsampling-prefix'] + 
+                        Path(os.path.basename(s)).stem +
+                        '.' + 
+                        self.brp['downsampling-save-image-type'] ) )
+                    
+                
+                self.source_image_path_target.append( Path(
+                    str(self.src_tar_dir) + 
+                    os.path.sep  + 
+                    self.brp['source-to-target-prefix'] + 
+                    Path(os.path.basename(s)).stem +
+                    '.' + 
+                    self.brp['source-to-target-save-image-type'] ) )
+        
         
         # ALSO set all image instance variables to None
-        self.template_img = None
-        self.template_ds_img = None
-        self.template_ds_img_filt = None
-        self.template_ds_ccf_img = None
+        self.source_template_img = None
+        self.source_template_img_filt = None # post-filtering
+        self.source_template_img_ds = None
+        self.source_template_img_ds_filt = None # post-filtering
+        self.source_template_img_target = None
+        self.source_template_img_target_filt = None # post-filtering
+        
+        
+        # create image lists, and fill with None
+        self.source_anno_img = []
+        for i in self.source_anno_path:
+            self.source_anno_img.append(None)
+            
+        self.source_anno_img_ds = []
+        for i in self.source_anno_path_ds:
+            self.source_anno_img_ds.append(None)
+        
+        self.source_anno_img_target = []
+        for i in self.source_anno_path_target:
+            self.source_anno_img_target.append(None)
+        
+        
+        self.source_image_img = []
+        for i in self.source_image_path:
+            self.source_image_img.append(None)
+        
+        self.source_image_img_ds = []
+        for i in self.source_image_path_ds:
+            self.source_image_img_ds.append(None)
+        
+        self.source_image_img_target = []
+        for i in self.source_image_path_target:
+            self.source_image_img_target.append(None)
+        
+    
+    
+    
+    def resolve_target_params(self):
+        '''
+        Resolve target image paths
+        
+        Also instantiate object variables for target template image in target,
+        downsampled, and source spaces - initially set to None.
+
+        Returns
+        -------
+        None.
+
+        '''
+        
+        if (self.brp['target-template-path'] == 
+            'brainregister:resource/allen-ccf/ccf_parameters.yaml'):
+            # open the ccf params file for brainregister allen ccf
+            ccf_params = os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
+                                      'allen-ccf', 'ccf_parameters.yaml')
+            with open(ccf_params, 'r') as file:
+                self.ccfp = yaml.safe_load(file)
+        else: # use user-defined path
+            ccf_params = str( Path( os.path.join(
+                            self.brp['target-template-path'])
+                        ).resolve() )
+            with open( ccf_params, 'r') as file:
+                self.ccfp = yaml.safe_load( file )
+        
+        
+        self.ccfp_keys = list(self.ccfp.keys())
+        
+        if self.ccfp_keys[0].startswith('ccf-'):
+            self.target_string = 'ccf'
+        elif self.ccfp_keys[0].startswith('target-'):
+            self.target_string = 'target'
+        else:
+            sys.exit('  ERROR - target-template-path : does not point to a valid'+
+                 ' target parameters file.  All parameters must begin with either'+
+                 '"ccf" or "target"!')
+        
+        
+        self.target_template_path = Path( 
+            os.path.dirname(ccf_params) + 
+            os.path.sep + 
+            self.ccfp[str(self.target_string+'-template-path')] ).resolve()
+        
+        
+        self.target_template_path_ds = None
+        if self.tar_src_ds is True:
+            self.target_template_path_ds = Path( 
+                str(self.tar_src_ds_dir) + 
+                os.path.sep  + 
+                self.brp['downsampling-prefix'] + 
+                Path(os.path.basename(
+                    self.ccfp[str(self.target_string+'-template-path')])).stem + 
+                '.' + 
+                self.brp['downsampling-save-image-type'] )
+        
+        
+        self.target_template_path_source = Path( 
+            str(self.tar_src_dir) + 
+            os.path.sep  + 
+            self.brp['target-to-source-prefix'] + 
+            Path(os.path.basename(
+                self.ccfp[str(self.target_string+'-template-path')])).stem +
+            '.' + 
+            self.brp['target-to-source-save-image-type'] )
+        
+        
+        target_path_keys = [b for b in self.ccfp_keys if (
+                            b.endswith('-path') 
+                    and not b.startswith(str(self.target_string+'-template-path')) 
+                                 ) ]
+        
+        
+        self.target_anno_path = []
+        self.target_anno_path_ds = []
+        self.target_anno_path_source = []
+        
+        if ((str(self.target_string+'-annotations-path') in target_path_keys) and
+            (len(self.ccfp[str(self.target_string+'-annotations-path')]) > 0) ):
+            
+            for tap in self.ccfp[str(self.target_string+'-annotations-path')]:
+                
+                self.target_anno_path.append(Path( 
+                    os.path.dirname(ccf_params) + 
+                    os.path.sep + tap ).resolve() )
+                
+                if self.tar_src_ds is True:
+                    self.target_anno_path_ds.append( Path( 
+                        str(self.tar_src_ds_dir) + 
+                        os.path.sep  + 
+                        self.brp['downsampling-prefix'] + 
+                        Path(os.path.basename(tap)).stem + 
+                        '.' + self.brp['downsampling-save-image-type'] ) )
+                
+                self.target_anno_path_source.append( Path( 
+                    str(self.tar_src_dir) + 
+                    os.path.sep  + 
+                    self.brp['target-to-source-prefix'] + 
+                    Path(os.path.basename(tap)).stem +
+                    '.' + self.brp['target-to-source-save-image-type'] ) )
+        
+        
+        # and structure trees!
+        self.target_tree_path = []
+        self.target_tree_path_ds = []
+        self.target_tree_path_source = []
+        
+        if ((len(self.ccfp[str(self.target_string+'-structure-tree')]) > 0) ):
+            
+            for tap in self.ccfp[str(self.target_string+'-structure-tree')]:
+                    
+                    self.target_tree_path.append(Path( 
+                        os.path.dirname(ccf_params) + 
+                        os.path.sep + tap ).resolve() )
+                    
+                    if self.tar_src_ds is True:
+                        self.target_tree_path_ds.append( Path( 
+                            str(self.tar_src_ds_dir) + 
+                            os.path.sep  + 
+                            self.brp['downsampling-prefix'] + tap ) )
+                    
+                    self.target_tree_path_source.append( Path( 
+                        str(self.tar_src_dir) + 
+                        os.path.sep  + 
+                        self.brp['target-to-source-prefix'] + tap ) )
+        
+        
+        
+        
+        target_path_keys = [b for b in self.ccfp_keys if (
+                            b.endswith('-path') 
+                    and not b.startswith(str(self.target_string+'-template-path'))
+                    and not b.startswith(str(self.target_string+'-annotations-path')) 
+                                  ) ]
+        
+        self.target_image_paths = []
+        for s in target_path_keys:
+            if self.ccfp[s]: # only add if not blank
+            
+                self.target_image_paths.append(
+                    [Path( 
+                str(self.target_template_path.parent) 
+                + os.path.sep 
+                + str(s)) for s in self.ccfp[s] ]
+                     )
+                
+        
+        self.target_image_paths_ds = []
+        self.target_image_paths_source = []
+        if self.target_image_paths: # only flatten list if not empty!
+            self.target_image_paths = [item for sublist in self.target_image_paths for item in sublist]
+            
+            for s in self.target_image_paths:
+                
+                if self.tar_src_ds is True:
+                    
+                    self.target_image_paths_ds.append( Path( 
+                        str(self.tar_src_ds_dir) + 
+                        os.path.sep  + 
+                        self.brp['downsampling-prefix'] + 
+                        Path(os.path.basename(s)).stem +
+                        '.' + 
+                        self.brp['downsampling-save-image-type'] ) )
+                
+                self.target_image_paths_source.append( Path(
+                    str(self.tar_src_dir) + 
+                    os.path.sep  + 
+                    self.brp['target-to-source-prefix'] + 
+                    Path(os.path.basename(s)).stem +
+                    '.' + 
+                    self.brp['target-to-source-save-image-type'] ) )
+        
+        # ALSO set all image instance variables to None
+        self.target_template_img = None
+        self.target_template_img_filt = None # post-filtering
+        self.target_template_img_ds = None
+        self.target_template_img_ds_filt = None # post-filtering
+        self.target_template_img_source = None
+        
+        
+        # create image lists, and fill with None
+        self.target_anno_img = []
+        for i in self.target_anno_path:
+            self.target_anno_img.append(None)
+            
+        self.target_anno_img_ds = []
+        for i in self.target_anno_path_ds:
+            self.target_anno_img_ds.append(None)
+        
+        self.target_anno_img_source = []
+        for i in self.target_anno_path_source:
+            self.target_anno_img_source.append(None)
+        
+        
+        self.target_image_imgs = []
+        for i in self.target_image_paths:
+            self.target_image_imgs.append(None)
+        
+        self.target_image_imgs_ds = []
+        for i in self.target_image_paths_ds:
+            self.target_image_imgs_ds.append(None)
+        
+        self.target_image_imgs_source = []
+        for i in self.target_image_paths_source:
+            self.target_image_imgs_source.append(None)
         
         
     
     
     
     
-    def resolve_param_paths(self):
+    
+    def resolve_params(self):
         '''
         Resolve elastix and transformix parameters files paths
         
-        Also instantiate object variables : booleans for ds/ccf prefiltering 
-        status, and parameter maps for fullstack <-> downsampled, and 
-        downsampled <-> ccf.
+        Also instantiate object variables : booleans for src/tar prefiltering 
+        status, and parameter maps for highres <-> downsampled, and 
+        downsampled <-> lowres.
 
         Returns
         -------
@@ -452,156 +836,106 @@ class BrainRegister(object):
         
         self.wd = Path(os.getcwd()).resolve() # store current working directory
         
-        self.fs_ds_pm_path = [ Path(os.path.join( 
-            self.fs_ds_dir, 
-             self.brp['fullstack-to-downsampled-transform-params-filename'] ) ) ]
+        # paths to transformix parameter map files
         
-        self.ds_fs_pm_path = [ Path( os.path.join( 
-            self.ds_fs_dir, 
-             self.brp['downsampled-to-fullstack-transform-params-filename'] ) ) ]
+        # source-to-target downsampled transformix params
+        if self.src_tar_ds == True: # save to ds_dir
+            self.src_tar_ds_pm_path = [ Path(os.path.join( 
+             self.src_tar_ds_dir, 
+             self.brp['source-to-target-downsampling-transform-parameter-file'] ) ) ]
+            
+        else: # save to src to target dir
+            self.src_tar_ds_pm_path = [ Path(os.path.join( 
+             self.src_tar_dir, 
+             self.brp['source-to-target-downsampling-transform-parameter-file'] ) ) ]
         
+        # source-to-target transformix params
+        # applied to the source and target AFTER downsampling
+        self.src_tar_pm_paths = []
+        for pm in self.brp['source-to-target-transform-parameter-files']:
+            self.src_tar_pm_paths.append( 
+                    Path( os.path.join(self.src_tar_dir, pm ) ) )
         
-        self.ds_ccf_pm_paths = []
-        for pm in self.brp['downsampled-to-ccf-transform-params-filenames']:
-            self.ds_ccf_pm_paths.append( 
-                Path( os.path.join(self.ds_ccf_dir, pm ) ) )
+        # target-to-source downsampled transformix params
+        if self.tar_src_ds == True: # save to ds_dir
+            # source-to-downsampled
+            self.tar_src_ds_pm_path = [ Path(os.path.join( 
+             self.tar_src_ds_dir, 
+             self.brp['target-to-source-downsampling-transform-parameter-file'] ) ) ]
+        else: # save to target to src dir
+            self.tar_src_ds_pm_path = [ Path(os.path.join( 
+             self.tar_src_dir, 
+             self.brp['target-to-source-downsampling-transform-parameter-file'] ) ) ]
         
-        self.ccf_ds_pm_paths = []
-        for pm in self.brp['ccf-to-downsampled-transform-params-filenames']:
-            self.ccf_ds_pm_paths.append( 
-                Path( os.path.join( self.ccf_ds_dir, pm ) ) )
+        # target-to-source transformix params
+        # applied to the source and target AFTER downsampling
+        self.tar_src_pm_paths = []
+        for pm in self.brp['target-to-source-transform-parameter-files']:
+            self.tar_src_pm_paths.append( 
+                    Path( os.path.join(self.tar_src_dir, pm ) ) )
+        
         
         # check params-filenames and files are of the same number
-        if (len(self.brp['downsampled-to-ccf-transform-params-filenames']) != 
-            len(self.brp['downsampled-to-ccf-parameters-files'])):
-            sys.exit('  ERROR - downsampled-to-ccf : transform-params-filenames'+
+        if (len(self.brp['target-to-source-transform-parameter-files']) != 
+            len(self.brp['target-to-source-elastix-parameter-files'])):
+            sys.exit('  ERROR - target-to-source : transform-params-filenames'+
                  ' and parameters-files are not equal in length')
         
-        if (len(self.brp['ccf-to-downsampled-transform-params-filenames']) != 
-            len(self.brp['ccf-to-downsampled-parameters-files'])):
-            sys.exit('  ERROR - ccf-to-downsampled : transform-params-filenames'+
+        if (len(self.brp['source-to-target-transform-parameter-files']) != 
+            len(self.brp['source-to-target-elastix-parameter-files'])):
+            sys.exit('  ERROR - source-to-target : transform-params-filenames'+
                  ' and parameters-files are not equal in length')
         
-        self.ds_ccf_ep = self.get_elastix_params(self.brp['downsampled-to-ccf-parameters-files'])
-        self.ccf_ds_ep = self.get_elastix_params(self.brp['ccf-to-downsampled-parameters-files'])
         
-        self.ds_ccf_prefiltered = False # set to True once ds and ccf templates has been prefiltered
-        self.ccf_ds_prefiltered = False # set to True once ds and ccf templates has been prefiltered
+        self.tar_src_ep = self.get_elastix_params(self.brp['target-to-source-elastix-parameter-files'])
+        self.src_tar_ep = self.get_elastix_params(self.brp['source-to-target-elastix-parameter-files'])
+        
         
         # load the parameter map lists if they exist, or set to None
-        self.fs_ds_pm = self.load_pm_files(self.fs_ds_pm_path)#self.load_fs_ds_tp_file()
-        self.ds_fs_pm = self.load_pm_files(self.ds_fs_pm_path)#self.load_ds_fs_tp_file()
-        self.ds_fs_pm_anno = self.edit_pms_nearest_neighbour(self.ds_fs_pm)
-        self.ds_ccf_pm = self.load_pm_files(self.ds_ccf_pm_paths)
-        self.ccf_ds_pm = self.load_pm_files(self.ccf_ds_pm_paths)
-        self.ccf_ds_pm_anno = self.edit_pms_nearest_neighbour(self.ccf_ds_pm)
-
+        self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path) 
+        self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path) 
+        
+        self.src_tar_pm = self.load_pm_files(self.src_tar_pm_paths)
+        self.tar_src_pm = self.load_pm_files(self.tar_src_pm_paths)
+        
+        # create the nearest neighbour transform for any images labelled as ANNOTATION
+        # eg. source-annotations-path or target-annotation-path
+        self.src_tar_ds_pm_anno = None
+        self.src_tar_pm_anno = None
+        self.tar_src_ds_pm_anno = None
+        self.tar_src_pm_anno = None
+        
+        if self.source_anno_path != []:
+            self.src_tar_ds_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_ds_pm)
+            self.src_tar_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_pm)
+        
+        if self.target_anno_path != []:
+            self.tar_src_ds_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_ds_pm)
+            self.tar_src_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_pm)
+        
+        
+        # can load the src to tar and tar to src scale factors now
+        # to compute the downsampling
+        self.s2t, self.t2s = self.get_source_target_scale_factors()
+        
+        # and therefore work out which image should undergo downsampling
+        # source or target, depending on which has the HIGHER resolution
+        s2t_ratio = (self.s2t['x-um']*self.s2t['y-um']*self.s2t['z-um'])
+        t2s_ratio = (self.t2s['x-um']*self.t2s['y-um']*self.t2s['z-um'])
+        
+        if s2t_ratio < t2s_ratio:
+            self.downsampling_img = 'source'
+        elif t2s_ratio < s2t_ratio:
+            self.downsampling_img = 'target'
+        else: # source and target are same size!
+            self.downsampling_img = 'none' # so do NO DOWNSAMPLING!
+        
+        # initialise bools for prefiltering
+        # use to determine whether the src->tar or tar->src prefiltering has been applied
+        self.src_tar_prefiltered = False
+        self.tar_src_prefiltered = False
     
     
-    
-    def resolve_ccf_params(self):
-        '''
-        Resolve the CCF
-        
-        Load the CCF yaml parameters file, and resolve the path to the CCF 
-        template image.
-        
-        Also instantiate object variables for ccf template and annotation image 
-        in ccf, downsampled, and fullstack spaces - initially set to None.
-
-        Returns
-        -------
-        None.
-
-        '''
-        
-        if self.brp['fullstack-to-downsampled-ccf-path'] == 'brainregister_allen_ccf':
-            # open the brainregister ccf params file
-              # from resources/allen-ccf/ dir in brainregister package
-            # read yaml to dict
-            ccf_params = os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
-                                      'allen-ccf', 'ccf_parameters.yaml')
-            with open(ccf_params, 'r') as file:
-                self.ccfp = yaml.safe_load(file)
-            
-        else: # use user-defined path
-            with open( os.path.join(self.brp['fullstack-to-downsampled-ccf-path'], 
-                                    'ccf_parameters.yaml'), 'r') as file:
-                self.ccfp = yaml.safe_load( file )
-        
-        #print('  loading ccf template image..')
-        # read the ccf template and ccf annotation
-        self.ccf_template_path = Path( str(
-            os.path.join(
-                os.path.dirname(ccf_params),
-                self.ccfp['ccf-template-path']
-                ) 
-            ) 
-         )
-        
-        #print('  loading ccf annotation image..')
-        self.ccf_annotation_path =  Path( str(
-            os.path.join(
-                os.path.dirname(ccf_params),
-                self.ccfp['ccf-annotation-path']
-                ) 
-            ) 
-         )
-        
-        
-        self.ccf_template_path_ds = Path( 
-            str(self.ccf_ds_dir) + 
-            os.path.sep  + 
-            self.brp['ccf-to-downsampled-prefix'] + 
-            Path(os.path.basename(
-                            self.ccfp['ccf-template-path'])).stem +
-            '.' + 
-            self.brp['ccf-to-downsampled-save-image-type'] )
-        
-        self.ccf_annotation_path_ds = Path( 
-            str(self.ccf_ds_dir) + 
-            os.path.sep  + 
-            self.brp['ccf-to-downsampled-prefix'] + 
-            Path(os.path.basename(
-                            self.ccfp['ccf-annotation-path'])).stem +
-            '.' + 
-            self.brp['ccf-to-downsampled-save-image-type'] )
-        
-        
-        self.ccf_template_path_ds_fs = Path( 
-            str(self.ds_fs_dir) + 
-            os.path.sep  + 
-            self.brp['downsampled-to-fullstack-prefix'] + 
-            self.brp['ccf-to-downsampled-prefix'] + 
-            Path(os.path.basename(
-                            self.ccfp['ccf-template-path'])).stem +
-            '.' + 
-            self.brp['downsampled-to-fullstack-save-image-type'] )
-        
-        self.ccf_annotation_path_ds_fs = Path( 
-            str(self.ds_fs_dir) + 
-            os.path.sep  + 
-            self.brp['downsampled-to-fullstack-prefix'] + 
-            self.brp['ccf-to-downsampled-prefix'] + 
-            Path(os.path.basename(
-                            self.ccfp['ccf-annotation-path'])).stem +
-            '.' + 
-            self.brp['downsampled-to-fullstack-save-image-type'] )
-        
-        
-        # can load the sample to ccf and ccf to sample scale factors now
-        self.s2c, self.c2s = self.get_sample_ccf_scale_factors()
-        
-        # ALSO set all image instance variables to Nonw
-        self.ccf_template_img = None
-        self.ccf_template_ds_img = None
-        self.ccf_template_img_filt = None
-        self.ccf_template_ds_fs_img = None
-        
-        self.ccf_annotation_img = None
-        self.ccf_annotation_ds_img = None
-        self.ccf_annotation_ds_fs_img = None
-        
     
     
     
@@ -619,22 +953,127 @@ class BrainRegister(object):
         
         print('  create output dirs..')
         
-        if self.fs_ds_dir.exists() == False:
-            self.fs_ds_dir.mkdir(parents = True, exist_ok=True)
-            print('    made fs-to-ds dir  : '+ self.get_relative_path(self.fs_ds_dir) )
+                
+        if self.src_tar_ds is True:
+            print('    making source-to-target downsampling dir : '+ 
+                      self.get_relative_path(self.src_tar_ds_dir) )
+            if self.src_tar_ds_dir.exists() == False:
+                self.src_tar_ds_dir.mkdir(parents = True, exist_ok=True)
+            
         
-        if self.ds_ccf_dir.exists() == False:
-            self.ds_ccf_dir.mkdir(parents = True, exist_ok=True)
-            print('    made ds-to-ccf dir : '+ self.get_relative_path(self.ds_ccf_dir) )
+        if self.tar_src_ds is True:
+            print('    making source-to-target downsampling dir : '+ 
+                      self.get_relative_path(self.tar_src_ds_dir) )
+            if self.tar_src_ds_dir.exists() == False:
+                self.tar_src_ds_dir.mkdir(parents = True, exist_ok=True)
+            
         
-        if self.ccf_ds_dir.exists() == False:
-            self.ccf_ds_dir.mkdir(parents = True, exist_ok=True)
-            print('    made ccf-to-ds dir : '+ self.get_relative_path(self.ccf_ds_dir) )
         
-        if self.ds_fs_dir.exists() == False:
-            self.ds_fs_dir.mkdir(parents = True, exist_ok=True)
-            print('    made ds-to-fs dir  : '+ self.get_relative_path(self.ds_fs_dir) )
+        print('    making source-to-target dir  : '+ 
+              self.get_relative_path(self.src_tar_dir) )
+        if self.src_tar_dir.exists() == False:
+            self.src_tar_dir.mkdir(parents = True, exist_ok=True)
         
+        print('    making target-to-source dir : '+ 
+              self.get_relative_path(self.tar_src_dir) )
+        if self.tar_src_dir.exists() == False:
+            self.tar_src_dir.mkdir(parents = True, exist_ok=True)
+        
+        print('')
+        
+    
+    
+    
+    def save_target_params(self):
+        
+        # load template target_parameters.yaml from package
+        target_params_output_path = Path( 
+            str(self.brp_dir ) 
+            + os.path.sep
+            + self.brp['target-template-output'])
+        
+        print('  building output target parameters file..')
+        
+        # next - build the yaml file
+        tar_params_path = os.path.join(
+                        BRAINREGISTER_MODULE_DIR, 
+                        'resources', 'target_parameters.yaml')
+        
+        # read yaml to dict
+        with open(tar_params_path, 'r') as file:
+            tp = yaml.safe_load(file)
+        
+        # read yaml to list - THIS CONTAINS THE COMMENTS
+        with open(tar_params_path, 'r') as file:
+            tpf = file.readlines()
+        
+        # write variables to param list
+        tp['target-template-path'] = self.brp['source-template-path']
+        
+        # annotations are annotations from the current target params
+        # PLUS any annotations from current source params
+        target_anno_paths = []
+        for ta in self.target_anno_path_source:
+            target_anno_paths.append(
+                os.path.relpath(ta, start=self.brp_dir))
+        for sa in self.source_anno_path:
+            target_anno_paths.append(
+                os.path.relpath(sa, start=self.brp_dir))
+        tp['target-annotations-path'] = target_anno_paths
+        
+        # annotations are annotations from the current target params
+        # PLUS any annotations from current source params
+        target_tree_paths = []
+        for ta in self.target_tree_path_source:
+            target_tree_paths.append(
+                os.path.relpath(ta, start=self.brp_dir))
+        for sa in self.source_tree_path:
+            target_tree_paths.append(
+                os.path.relpath(sa, start=self.brp_dir))
+        tp['target-structure-tree'] = target_tree_paths
+        
+        tp['target-template-resolution']['x-um'] = self.brp['source-template-resolution']['x-um']
+        tp['target-template-resolution']['y-um'] = self.brp['source-template-resolution']['y-um']
+        tp['target-template-resolution']['z-um'] = self.brp['source-template-resolution']['z-um']
+        
+        tp['target-template-size']['x'] = self.brp['source-template-size']['x']
+        tp['target-template-size']['y'] = self.brp['source-template-size']['y']
+        tp['target-template-size']['z'] = self.brp['source-template-size']['z']
+        
+        tp['target-template-structure'] = self.brp['source-template-structure']
+        tp['target-template-orientation'] = self.brp['source-template-orientation']
+        
+        # write param list to brainregister output DIR
+        print('    saving target parameters file..')
+        with open(target_params_output_path, 'w') as file:
+            yaml.dump(tp, file, sort_keys=False)
+        
+        # add COMMENTS from original file
+        with open(target_params_output_path, 'r') as file:
+            tpf2 = file.readlines()
+        
+        # get index of sample-template-orientation 
+         # as sample-images length can VARY!
+        til = [i for i, s in enumerate(tpf2) if 'target-template-resolution' in s]
+        
+        
+        # concat comments and yaml lines into one list:
+        tpf3 = [ tpf[0:24] + # target paths
+                  tpf2[ 0:(til[0]) ] + # source- params
+                  tpf[29:44] + # target params
+                  tpf2[ (til[0]):(til[0]+10)] # target- params
+                                                          ]
+        tpf3 = tpf3[0] # remove the nesting of this list
+        
+        # write this OVER the current yaml
+        with open(target_params_output_path, 'w') as file:
+            for t in tpf3:
+                file.write('%s' % t)
+        
+        print('      written target_parameters.yaml file : ' +
+               os.path.relpath(target_params_output_path, os.getcwd()  ) )
+        
+    
     
     
     
@@ -658,21 +1097,26 @@ class BrainRegister(object):
         
     
     
-    def register_transform_fullstack_to_downsampled(self):
+    def register_transform_highres_to_downsampled(self):
         """
-        Register & Transform the fullstack to downsampled image spaces
+        Register & Transform the high-res image to downsampled image space
         
-        Generates the affine scaling transform from fs -> ds, and its reverse to
-        move the fullstack image into downsampled space, and vice versa.  The
-        downsampled resolution matches that of the CCF passed to BrainRegister,
-        for built-in Allen Mouse Brain CCF this is 25µm XYZ.
+        Generates the affine scaling transform from img -> ds, and its reverse to
+        move the higher-res image between soruce and target into downsampled space, 
+        and vice versa.  
         
-        The fullstack image is filtered, scaled, and saved as dictated by the 
+        The downsampled resolution matches that of the lower-res image between
+        the source and target.  The default target in brainregister is the 
+        built-in Allen Mouse Brain CCF, which has a resolution of 25µm XYZ.
+        
+        The downsampled image is filtered, scaled, and saved as dictated by the 
         brainregister parameters yaml, and a reference to this image is stored
-        in an instance variable `template_ds_img` for further registrations.
+        to the instance variable, `source_template_img_ds` for source downsampling
+        or 'target_template_img_ds' for target downsampling.
         
-        Further images at fullstack resolution are transformed to the downsampled
-        image space as dictated by the brainregister parameters yaml.
+        Annotation and other images at the higher-resolution are transformed into
+        the downsampled image space as dictated by the  brainregister parameters yaml 
+        file.
 
         Returns
         -------
@@ -680,163 +1124,648 @@ class BrainRegister(object):
 
         """
         
-        print('')
-        print('')
-        print('========================')
-        print('FULLSTACK TO DOWNSAMPLED')
-        print('========================')
-        print('')
         
-        # load template img if needed
-        if (self.fs_ds_pm_path_exists() == False or 
-            self.ds_fs_pm_path_exists() == False or 
-            self.template_path_ds.exists() == False):
-            print('  loading sample template image : ', 
-                  self.get_relative_path(self.template_path) )
-            self.template_img = sitk.ReadImage( str(self.template_path) )
+        if (self.downsampling_img == 'source'):
+            # ds source
             print('')
-        
-        # generate scaling param files as needed
-        self.generate_scaling_param_files_fs_ds()
-        
-        # transform and save template ds image as needed
-        self.template_ds_img = self.get_template_ds()
-        self.save_template_ds()
-        
-        # also transform and save other sample images - if requested in the params file
-        self.transform_save_fs_ds_images()
-        
-        # DISCARD the template_img - as this can be a large file, best to discard!
-        self.template_img = None
-        # discard from memory all images/martices not needed - just point vars to blank list!
-        garbage = gc.collect() # run garbage collection to ensure memory is freed
-        
+            print('source template higher resolution than target - downsampling source..')
+            print('')
+            print('')
+            print('=====================')
+            print('SOURCE TO DOWNSAMPLED')
+            print('=====================')
+            print('')
+            
+            # generate scaling param files as needed
+            self.generate_ds_scaling_param_files()
+            
+            # transform and save source template ds image as needed
+            self.transform_save_high_ds_template()
+            
+            # also transform and save source annotation images - if requested in the params file
+            self.transform_save_high_ds_anno()
+            
+            # also transform and save other source images - if requested in the params file
+            self.transform_save_high_ds_images()
+            
+            
+        elif (self.downsampling_img == 'target'):
+            
+            print('')
+            print('target template higher resolution than source - downsampling target..')
+            print('')
+            print('')
+            print('=====================')
+            print('TARGET TO DOWNSAMPLED')
+            print('=====================')
+            print('')
+            
+            # generate scaling param files as needed
+            self.generate_ds_scaling_param_files()
+            
+            # transform and save template ds image as needed
+            self.transform_save_high_ds_template()
+            
+            # also transform and save source annotation images - if requested in the params file
+            self.transform_save_high_ds_anno()
+            
+            # also transform and save other source images - if requested in the params file
+            self.transform_save_high_ds_images()
+            
+        else:
+            # no downsampling!
+            print('source and target template same resolution - no downsampling performed.')
         
     
     
     
-    def fs_ds_pm_path_exists(self):
-        return self.fs_ds_pm_path[0].exists()
+    def src_tar_ds_pm_path_exists(self):
+        return self.src_tar_ds_pm_path[0].exists()
     
     
-    def ds_fs_pm_path_exists(self):
-        return self.ds_fs_pm_path[0].exists()
+    
+    def tar_src_ds_pm_path_exists(self):
+        return self.tar_src_ds_pm_path[0].exists()
+    
     
     
     def save_template_ds(self):
-        # save the fullstack -> downsampled sample template - if requested in params file!
-        if self.brp['fullstack-to-downsampled-save-template'] == True:
-            if self.template_ds_img != None:
-                print('  saving downsampled template image : ' +
-                  self.get_relative_path(self.template_path_ds ) )
-                self.save_image(self.template_ds_img, self.template_path_ds)
-            else:
-                print('  template image in ds space does not exist - run get_template_ds()')
+        
+        if (self.downsampling_img == 'source'):
+            # save the source -> target downsampling template - if requested in params file!
+            if self.brp['source-to-target-downsampling-save-template'] == True:
+                if self.source_template_img_ds != None:
+                    print('  saving source downsampled template image : ' +
+                      self.get_relative_path(self.source_template_path_ds ) )
+                    self.save_image(self.source_template_img_ds, 
+                                    self.source_template_path_ds)
+                else:
+                    print('  source template image in ds space does not exist - run get_template_ds()')
+                
+            
+        elif (self.downsampling_img == 'target'):
+            # save the target -> source downsampling template - if requested in params file!
+            if self.brp['target-to-source-downsampling-save-template'] == True:
+                if self.template_ds_img != None:
+                    print('  saving target downsampled template image : ' +
+                      self.get_relative_path(self.target_template_path_ds ) )
+                    self.save_image(self.target_template_img_ds, self.target_template_path_ds)
+                else:
+                    print('  target template image in ds space does not exist - run get_template_ds()')
+                
+            
+        
+    
+    
+    
+    def move_image_img_ds(self, img):
+        '''
+        Move from raw space to downsampled image space
+        
+        This depends which image has been downsampled (source or target).  If no 
+        downsampling, this method returns None.
+        
+        Downsampling images are first filtered according to the 
+        downsampling-filter parameter in the brainregister parameters file.
 
+        Parameters
+        ----------
+        img : SITK Image
+            Assumed this image is in the raw image space.
+
+        Returns
+        -------
+        None : if no downsampling, otherwise it transforms the img into the 
+        appropriate downsampled image space.
+
+        '''
+        
+        
+        if (self.downsampling_img == 'source'):
+            # img -> ds is source to ds source image space
+            
+            # apply img to ds filter first
+            if self.brp['downsampling-filter'] != 'false':
+                print('    running downsampling filter..')
+                self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+                img_filt = self.apply_adaptive_filter(
+                                    img, self.img_ds_filter_pipeline)
+            else:
+                img_filt = img
+            
+            # to move FROM SOURCE TO DS, need the src -> tar ds pm files
+            if self.src_tar_ds_pm == None:
+                print('  loading source-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+                if self.src_tar_ds_pm == None:
+                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    source-to-downsampled elastix pm file : ' + 
+                    self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            img_t = self.transform_image(img_filt, self.src_tar_ds_pm)
+            return img_t
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # img -> ds is target ti ds target image space
+            
+            # apply img to ds filter first
+            if self.brp['downsampling-filter'] != 'false':
+                print('    running downsampling filter..')
+                self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+                img_filt = self.apply_adaptive_filter(
+                                    img, self.img_ds_filter_pipeline)
+            else:
+                img_filt = img
+            
+            # to move FROM TARGET TO DS, need the tar -> src ds pm files
+            if self.tar_src_ds_pm == None:
+                print('  loading target-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+                if self.tar_src_ds_pm == None:
+                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    target-to-downsampled elastix pm file : ' + 
+                    self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            img_t = self.transform_image(img_filt, self.tar_src_ds_pm)
+            return img_t
+            
+            
+        elif (self.downsampling_img == 'none'):
+            return None # cannot move as no downsampling defined!
+        
+        
+    
+    
+    
+    def move_anno_img_ds(self, img):
+        '''
+        Move annotation from raw space to downsampled image space
+        
+        This depends which image has been downsampled (source or target).  If no 
+        downsampling, this method returns None.
+        
+        Downsampling images are first filtered according to the 
+        downsampling-filter parameter in the brainregister parameters file.
+
+        Parameters
+        ----------
+        img : SITK Image
+            Assumed this image is in the raw image space.
+
+        Returns
+        -------
+        None : if no downsampling, otherwise it transforms the img into the 
+        appropriate downsampled image space.
+
+        '''
+        
+        
+        if (self.downsampling_img == 'source'):
+            # img -> ds is source to ds source image space
+            
+            # apply img to ds filter first
+            #if self.brp['downsampling-filter'] != 'false':
+            #    print('    running downsampling filter..')
+            #    self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+            #    img_filt = self.apply_adaptive_filter(
+            #                        img, self.img_ds_filter_pipeline)
+            #else:
+            #    img_filt = img
+            
+            # to move FROM SOURCE TO DS, need the src -> tar ds pm files
+            if self.src_tar_ds_pm_anno == None:
+                print('  loading source-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+                if self.src_tar_ds_pm == None:
+                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                self.src_tar_ds_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_ds_pm)
+            
+            # transform all input images with transformix
+            print('  transforming annotation image..')
+            print('    source-to-downsampled elastix pm file : ' + 
+                    self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            anno_t = self.transform_image(img, self.src_tar_ds_pm_anno)
+            return anno_t
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # img -> ds is target ti ds target image space
+            
+            # apply img to ds filter first
+            #if self.brp['downsampling-filter'] != 'false':
+            #    print('    running downsampling filter..')
+            #    self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+            #    img_filt = self.apply_adaptive_filter(
+            #                        img, self.img_ds_filter_pipeline)
+            #else:
+            #    img_filt = img
+            
+            # to move FROM TARGET TO DS, need the tar -> src ds pm files
+            if self.tar_src_ds_pm_anno == None:
+                print('  loading target-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+                if self.tar_src_ds_pm == None:
+                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                self.tar_src_ds_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_ds_pm)
+            
+            # transform all input images with transformix
+            print('  transforming annotation image..')
+            print('    target-to-downsampled elastix pm file : ' + 
+                    self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            anno_t = self.transform_image(img, self.tar_src_ds_pm_anno)
+            return anno_t
+            
+            
+        elif (self.downsampling_img == 'none'):
+            return None # cannot move as no downsampling defined!
+        
+        
+    
+    
+    def move_image_ds_img(self, img):
+        '''
+        Move from downsampled space to the raw image space
+        
+        This depends which image has been downsampled (source or target).  If no 
+        downsampling, this method returns None.
+
+        Parameters
+        ----------
+        img : SITK Image
+            Assumed this image is in the downsampled image space.
+
+        Returns
+        -------
+        None : if no downsampling, otherwise it transforms the img into the 
+        appropriate rawimage space.
+
+        '''
+        
+        
+        if (self.downsampling_img == 'source'):
+            # ds -> img is ds to source image space
+            
+            # to move FROM DS TO SOURCE, need the tar -> src ds pm files
+            if self.tar_src_ds_pm == None:
+                print('  loading downsampled-to-source transform parameters file : ' +
+                      self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+                if self.tar_src_ds_pm == None:
+                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    downsampled-to-source elastix pm file : ' + 
+                    self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            img_t = self.transform_image(img, self.tar_src_ds_pm)
+            return img_t
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # ds -> ims is ds to target image space
+            
+            # to move FROM DS TO TARGET, need the src -> tar ds pm files
+            if self.src_tar_ds_pm == None:
+                print('  loading downsampled-to-target transform parameters file : ' +
+                      self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+                if self.src_tar_ds_pm == None:
+                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    downsampled-to-target elastix pm file : ' + 
+                    self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            img_t = self.transform_image(img, self.src_tar_ds_pm)
+            return img_t
+            
+        
+        elif (self.downsampling_img == 'none'):
+            return None # cannot move as no downsampling defined!
+        
+        
+    
+    
+    
+    def move_anno_ds_img(self, img):
+        '''
+        Move annotation from downsampled space to the raw image space
+        
+        This depends which image has been downsampled (source or target).  If no 
+        downsampling, this method returns None.
+
+        Parameters
+        ----------
+        img : SITK Image
+            Assumed this image is in the downsampled image space.
+
+        Returns
+        -------
+        None : if no downsampling, otherwise it transforms the img into the 
+        appropriate rawimage space.
+
+        '''
+        
+        
+        if (self.downsampling_img == 'source'):
+            # ds -> img is ds to source image space
+            
+            # to move FROM DS TO SOURCE, need the tar -> src ds pm files
+            if self.tar_src_ds_pm_anno == None:
+                print('  loading target-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+                if self.tar_src_ds_pm == None:
+                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                self.tar_src_ds_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_ds_pm)
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    downsampled-to-source elastix pm file : ' + 
+                    self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            anno_t = self.transform_image(img, self.tar_src_ds_pm_anno)
+            return anno_t
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # ds -> ims is ds to target image space
+            
+            # to move FROM DS TO TARGET, need the src -> tar ds pm files
+            if self.src_tar_ds_pm_anno == None:
+                print('  loading source-to-downsampled transform parameters file : ' +
+                      self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+                if self.src_tar_ds_pm == None:
+                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                self.src_tar_ds_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_ds_pm)
+            
+            # transform all input images with transformix
+            print('  transforming image..')
+            print('    downsampled-to-target elastix pm file : ' + 
+                    self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+            print('')
+            print('========================================================================')
+            print('')
+            print('')
+            anno_t = self.transform_image(img, self.src_tar_ds_pm)
+            return anno_t
+            
+        
+        elif (self.downsampling_img == 'none'):
+            return None # cannot move as no downsampling defined!
+        
+        
     
     
     
     def get_template_ds(self):
         
-        if self.template_path_ds.exists() == False: # only transform if hte output does not exist
+        if (self.downsampling_img == 'source'):
+            # template_ds is source_template_ds!
             
-            if self.template_ds_img == None: # and if the output image is not already loaded!
-                # TRANSFORM : will transform sample template to ds space
+            if self.source_template_path_ds.exists() == False: # only transform if the output does not exist
                 
-                if self.template_img == None:
-                    print('  loading sample template image : ', 
-                      self.get_relative_path(self.template_path) )
-                    self.template_img = sitk.ReadImage( str(self.template_path) )
-                    self.template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+                if self.source_template_img_ds == None: # and if the output image is not already loaded!
+                    # TRANSFORM : will transform sample template to ds space
+                    
+                    if self.source_template_img == None:
+                        print('  loading source template image : ' + 
+                          self.get_relative_path(self.source_template_path) )
+                        self.source_template_img = self.load_image(self.source_template_path)
+                    
+                    
+                    if self.src_tar_ds_pm == None:
+                        print('  loading source-to-downsampled transform parameters file : ' +
+                              self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                        self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+                        if self.src_tar_ds_pm == None:
+                            print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                    
+                    
+                    # apply downsampling filter - if requested in brp
+                    if self.brp['downsampling-filter'] != 'false':
+                        print('  running source to downsampled filter..')
+                        self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+                        self.source_template_img = self.apply_adaptive_filter(
+                                                    self.source_template_img, 
+                                                    self.img_ds_filter_pipeline)
+                    
+                    # transform all input images with transformix
+                    print('  transforming source template image..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.source_template_path) )
+                    print('    source-to-downsampled elastix pm file : ' + 
+                            self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_ds = self.transform_image(
+                                                    self.source_template_img, 
+                                                    self.src_tar_ds_pm)
+                    return self.source_template_img_ds
+                    
+                else:
+                    print('  downsampled source template image exists : returning image' )
+                    return self.source_template_img_ds
+            
+            else:
+                print('  downsampled source template image exists - loading image..')
+                self.source_template_img_ds = self.load_image(self.source_template_path_ds)
+                return self.source_template_img_ds
+            
+            
+        if (self.downsampling_img == 'target'):
+            # template_ds is target_template_ds!
+            
+            if self.target_template_path_ds.exists() == False: # only transform if the output does not exist
                 
+                if self.target_template_img_ds == None: # and if the output image is not already loaded!
+                    # TRANSFORM : will transform sample template to ds space
+                    
+                    if self.target_template_img == None:
+                        print('  loading target template image : ' + 
+                          self.get_relative_path(self.target_template_path) )
+                        self.target_template_img = self.load_image(self.target_template_path)
+                    
+                    
+                    if self.tar_src_ds_pm == None:
+                        print('  loading target-to-downsampled transform parameters file : ' +
+                              self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                        self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+                        if self.tar_src_ds_pm == None:
+                            print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                    
+                    
+                    # apply downsampling filter - if requested in brp
+                    if self.brp['downsampling-filter'] != 'false':
+                        print('  running target to downsampled filter..')
+                        self.img_ds_filter_pipeline = self.compute_adaptive_filter_img_ds()
+                        self.target_template_img = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.img_ds_filter_pipeline)
+                    
+                    # transform all input images with transformix
+                    print('  transforming target template image..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.target_template_path) )
+                    print('    target-to-downsampled elastix pm file : ' + 
+                            self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_ds = self.transform_image(
+                                                    self.target_template_img, 
+                                                    self.tar_src_ds_pm)
+                    return self.target_template_img_ds
+                    
+                else:
+                    print('  downsampled target template image exists : returning image' )
+                    return self.target_template_img_ds
+            
+            else:
+                print('  downsampled target template image exists - loading image..')
+                self.target_template_img_ds = self.load_image(self.target_template_path_ds)
+                return self.target_template_img_ds
+            
+        
+    
+    
+    
+    
+    def generate_ds_scaling_param_files(self):
+        
+        if self.downsampling_img =='source':
+            # downsampling from SOURCE TO TARGET : compute source <-> downsampled spaces
+            
+            if self.src_tar_ds_pm_path_exists() == False:
                 
-                if self.fs_ds_pm == None:
-                    print('  loading fullstack-to-downsampled transform parameters file : ' +
-                          self.get_relative_path(self.fs_ds_pm_path[0] ) )
-                    self.fs_ds_pm = self.load_pm_files(self.fs_ds_pm_path)
-                    if self.fs_ds_pm == None:
-                        print("ERROR : fs_ds_pm files do not exist - run register() first")
+                print('  defining source to downsampled scaling parameters..')
+                self.src_tar_ds_pm = self.get_img_ds_scaling()
                 
-                
-                # apply adaptive filter - if requested in brp
-                if self.brp['fullstack-to-downsampled-adaptive-filter'] == True:
-                    print('  running fullstack to downsampled adaptive filter..')
-                    self.fs_ds_filter_pipeline = self.compute_adaptive_filter_fs_ds()
-                    self.template_img = self.apply_adaptive_filter(
-                                       self.template_img, self.fs_ds_filter_pipeline)
-                
-                # transform all input images with transformix
-                print('  transforming sample template image..')
-                print('    image : ' + 
-                        self.get_relative_path(self.template_path) )
-                print('    fullstack-to-downsampled elastix pm file : ' + 
-                        self.get_relative_path(self.fs_ds_pm_path[0] ) )
-                print('')
-                print('========================================================================')
-                print('')
-                print('')
-                self.template_ds_img = self.transform_image(self.template_img, self.fs_ds_pm)
-                return self.template_ds_img
+                print('  saving source-to-downsampled transform parameters file : ')
+                print('    '+self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.save_img_ds_pm_file()
                 
             else:
-                print('  downsampled sample template image exists : returning image' )
-                return self.template_ds_img
-        
-        else:
-            print('  loading downsampled sample template image : ' +
-                      self.get_relative_path(self.template_path_ds ) )
-            self.template_ds_img = self.load_image(self.template_path_ds)
-            self.template_ds_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return self.template_ds_img
+                
+                print('  loading source-to-downsampled transform parameters file : ')
+                print('    '+self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
             
-        
+            
+            if self.tar_src_ds_pm_path_exists() == False:
+                
+                print('  defining downsampled to source scaling parameters..')
+                self.tar_src_ds_pm = self.get_ds_img_scaling()
+                
+                print('  saving downsampled-to-source transform parameters file : ')
+                print('    '+self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.save_ds_img_pm_file()
+                
+            else:
+                
+                print('  loading downsampled-to-source transform parameters file : ')
+                print('    '+self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+            
+            print('')
+            
+            
+            
+        elif self.downsampling_img =='target':
+            # downsampling from TARGET TO SOURCE : compute target <-> downsampled spaces
+            
+            if self.tar_src_ds_pm_path_exists() == False:
+                
+                print('  defining target to downsampled scaling parameters..')
+                self.tar_src_ds_pm = self.get_img_ds_scaling()
+                
+                print('  saving target-to-downsampled transform parameters file : ' +
+                          self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.save_img_ds_pm_file()
+                
+            else:
+                
+                print('  loading target-to-downsampled transform parameters file : ' +
+                          self.get_relative_path(self.tar_src_ds_pm_path[0] ) )
+                self.tar_src_ds_pm = self.load_pm_files(self.tar_src_ds_pm_path)
+            
+            
+            if self.src_tar_ds_pm_path_exists() == False:
+                
+                print('  defining downsampled to target scaling parameters..')
+                self.src_tar_ds_pm = self.get_ds_img_scaling()
+                
+                print('  saving downsampled-to-target transform parameters file : ' +
+                          self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.save_ds_img_pm_file()
+                
+            else:
+                
+                print('  loading downsampled-to-target transform parameters file : ' +
+                          self.get_relative_path(self.src_tar_ds_pm_path[0] ) )
+                self.src_tar_ds_pm = self.load_pm_files(self.src_tar_ds_pm_path)
+            
+            print('')
+            
     
     
-    def generate_scaling_param_files_fs_ds(self):
-        
-        if self.fs_ds_pm_path_exists() == False:
-            print('  defining fullstack to downsampled scaling parameters..')
-            self.fs_ds_pm = self.get_fs_ds_scaling()
-            print('  saving fullstack-to-downsampled transform parameters file : ' +
-                      self.get_relative_path(self.fs_ds_pm_path[0] ) )
-            self.save_fs_ds_tp_file()
-        else:
-            print('  loading fullstack-to-downsampled transform parameters file : ' +
-                      self.get_relative_path(self.fs_ds_pm_path[0] ) )
-            self.fs_ds_pm = self.load_pm_files(self.fs_ds_pm_path)
-        
-        
-        if self.ds_fs_pm_path_exists() == False:
-            print('  defining downsampled to fullstack scaling parameters..')
-            self.ds_fs_pm = self.get_ds_fs_scaling()
-            print('  saving downsampled-to-fullstack transform parameters file : ' +
-                      self.get_relative_path(self.ds_fs_pm_path[0] ) )
-            self.save_ds_fs_tp_file()
-        else:
-            print('  loading downsampled-to-fullstack transform parameters file : ' +
-                      self.get_relative_path(self.ds_fs_pm_path[0] ) )
-            self.ds_fs_pm = self.load_pm_files(self.ds_fs_pm_path)
-        
-        print('')
-        
-        
     
-    
-    
-    def  get_sample_ccf_scale_factors(self):
+    def  get_source_target_scale_factors(self):
         
+        #str(self.target_string+'-template-resolution')
         # round to 6 dp - used by elastix!
         s2c = {key: round( 
-            self.brp['sample-template-resolution'][key] / 
-            self.ccfp['ccf-template-resolution'].get(key, 0), 6 )
-                            for key in self.brp['sample-template-resolution'].keys()}
+            self.brp['source-template-resolution'][key] / 
+            self.ccfp[str(self.target_string+'-template-resolution')].get(key, 0), 6 )
+                            for key in self.brp['source-template-resolution'].keys()}
         
         # scale-factors in XYZ ccf -> sample
           # round to 6 dp - used by elastix!
         c2s = {key: round(
-            self.ccfp['ccf-template-resolution'][key] / 
-            self.brp['sample-template-resolution'].get(key, 0), 6 )
-                            for key in self.ccfp['ccf-template-resolution'].keys()}
+            self.ccfp[str(self.target_string+'-template-resolution')][key] / 
+            self.brp['source-template-resolution'].get(key, 0), 6 )
+                            for key in self.ccfp[str(self.target_string+
+                                                '-template-resolution')].keys()}
         
         #scale_matrix = np.zeros((4, 4))
         #scale_matrix[0,0] = s2c['x-um']
@@ -852,109 +1781,166 @@ class BrainRegister(object):
         
     
     
-    def compute_adaptive_filter_fs_ds(self):
+    def compute_adaptive_filter_img_ds(self):
         
-        return ImageFilterPipeline(
-            str("M,"+
-            str(round( (self.c2s['x-um']) / 2)) + ',' +
-            str(round( (self.c2s['y-um']) / 2)) + ',' +
-            str(round( (self.c2s['z-um']) / 2)) )  )
-
-        
-    
-    
-    def apply_adaptive_filter_fs_ds(self, img):
-        
-        
-        if self.brp['fullstack-to-downsampled-adaptive-filter'] == True:
-            
-            if self.fs_ds_filter_pipeline is not None:
-                
-                self.fs_ds_filter_pipeline.set_image(img)
-                img = self.fs_ds_filter_pipeline.execute_pipeline()
-                self.fs_ds_filter_pipeline.dereference_image() # remove ref to raw data
-                
-                return self.fs_ds_filter_pipeline.get_filtered_image()
-            
+        if (self.downsampling_img == 'source'):
+            # target-to-source resolution diff. used to compute filter radius
+            # Median of res. diff for smoothed downsampling
+            if round( (self.t2s['z-um'] ) / 2) != 0:
+                return ImageFilterPipeline(
+                    str("M,"+
+                    str(round( (self.t2s['x-um'] ) / 2)) + ',' +
+                    str(round( (self.t2s['y-um'] ) / 2)) + ',' +
+                    str(round( (self.t2s['z-um'] ) / 2)) ) )
             else:
-                return img
+                # ALSO Mean with Z radius 1 to ensure some blurring BEYOND the downsampling in Z
+                # this helps even out any differences in intensity between Z slices
+                # This is a bit of a hack for now, as the intensities are moved to slightly
+                # different z slices with the MedZ1 filter - so the stack doesnt
+                # really reflect the original stack!  Would be better to average 2 slices
+                # rather than median of 3 I think...?
+                return ImageFilterPipeline(
+                    str("M,"+
+                    str(round( (self.t2s['x-um'] ) / 2)) + ',' +
+                    str(round( (self.t2s['y-um'] ) / 2)) + ',' +
+                    str(round( (self.t2s['z-um'] ) / 2)) ) +  
+                    str("-M,0,0,1")  )
+        
+        if (self.downsampling_img == 'target'):
+            # source-to-target resolution diff. used to comptue filter radius
+            return ImageFilterPipeline(
+                str("M,"+
+                str(round( (self.s2t['x-um']) / 2)) + ',' +
+                str(round( (self.s2t['y-um']) / 2)) + ',' +
+                str(round( (self.s2t['z-um']) / 2)) )  )
+        
+    
+    
+    
+    
+    
+    
+    def get_img_ds_scaling(self):
+        
+        if self.downsampling_img =='source':
+            # downsampling the source image : source -> downsampled (target res.)
+            
+            img_ds_pm = sitk.ReadParameterFile(
+                        os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
+                                          'transformix-parameter-files', 
+                                          '00_scaling.txt') )
+            # see keys with list(img_ds_pm)
+            # see contents of keys with img_ds_pm['key']
+            
+            # edit TransformParameters to correct tuple
+             # use t2s - as the registration is FROM fixed TO moving!!!
+            img_ds_pm['TransformParameters'] = tuple( 
+                [str("{:.6f}".format(self.t2s['x-um'])), 
+                 '0.000000', '0.000000','0.000000', 
+                 str("{:.6f}".format(self.t2s['y-um'])), 
+                 '0.000000','0.000000','0.000000', 
+                 str("{:.6f}".format(self.t2s['z-um'])), 
+                 '0.000000','0.000000','0.000000'] )
+            
+            # AND edit the Size to correct tuple
+             # here want to use s2t - as this defines the size of the final FIXED image!
+            img_ds_pm['Size'] = tuple( 
+                [str("{:.6f}".format( round(
+                     self.brp['source-template-size']['x'] * self.s2t['x-um']) ) ), 
+                 str("{:.6f}".format( round(
+                     self.brp['source-template-size']['y'] * self.s2t['y-um']) ) ),
+                 str("{:.6f}".format( round(
+                     self.brp['source-template-size']['z'] * self.s2t['z-um']))) ] )
+            
+            # set the output format
+            img_ds_pm['ResultImageFormat'] = tuple( [ self.brp['downsampling-save-image-type'] ] )
+            
+            img_ds_pm = [img_ds_pm]
+            # wrap in list so this works with transform_image like any other set pof parameter maps!
+            
+            return img_ds_pm
+            
+            
+        elif self.downsampling_img =='target':
+            # downsampling the target image : target -> downsampled (source res.)
+            
+            img_ds_pm = sitk.ReadParameterFile(
+                        os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
+                                          'transformix-parameter-files', 
+                                          '00_scaling.txt') )
+            # see keys with list(img_ds_pm)
+            # see contents of keys with img_ds_pm['key']
+            
+            # edit TransformParameters to correct tuple
+             # use s2t - as the registration is FROM fixed TO moving!!!
+            img_ds_pm['TransformParameters'] = tuple( 
+                [str("{:.6f}".format(self.s2t['x-um'])), 
+                 '0.000000', '0.000000','0.000000', 
+                 str("{:.6f}".format(self.s2t['y-um'])), 
+                 '0.000000','0.000000','0.000000', 
+                 str("{:.6f}".format(self.s2t['z-um'])), 
+                 '0.000000','0.000000','0.000000'] )
+            
+            # AND edit the Size to correct tuple
+             # here want to use t2s - as this defines the size of the final FIXED image!
+            img_ds_pm['Size'] = tuple( 
+                [str("{:.6f}".format( round(
+                    self.ccfp[str(self.target_string+'-template-size')]['x'] 
+                      * self.t2s['x-um']) ) ), 
+                 str("{:.6f}".format( round(
+                     self.ccfp[str(self.target_string+'-template-size')]['y'] 
+                       * self.t2s['y-um']) ) ),
+                 str("{:.6f}".format( round(
+                     self.ccfp[str(self.target_string+'-template-size')]['z'] 
+                       * self.t2s['z-um']))) ] )
+            
+            # set the output format
+            img_ds_pm['ResultImageFormat'] = tuple( [ self.brp['downsampling-save-image-type'] ] )
+            
+            img_ds_pm = [img_ds_pm]
+            # wrap in list so this works with transform_image like any other set pof parameter maps!
+            
+            return img_ds_pm
         else:
-            return img
-        
+            return None
     
     
     
-    def get_fs_ds_scaling(self):
-        # , sample_template_img, c2s, s2c, brp
-        # self.template_img, self.c2s, self.s2c, self.brp
-        fs_ds_pm = sitk.ReadParameterFile(
-                    os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
-                                      'transformix-parameter-files', 
-                                      '00_scaling.txt') )
-        # see keys with list(fs_ds_pm)
-        # see contents of keys with fs_ds_pm['key']
+    def get_ds_img_scaling(self):
         
-        # edit TransformParameters to correct tuple
-         # use c2s - as the registration is FROM fixed TO moving!!!
-        fs_ds_pm['TransformParameters'] = tuple( 
-            [str("{:.6f}".format(self.c2s['x-um'])), 
-             '0.000000', '0.000000','0.000000', 
-             str("{:.6f}".format(self.c2s['y-um'])), 
-             '0.000000','0.000000','0.000000', 
-             str("{:.6f}".format(self.c2s['z-um'])), 
-             '0.000000','0.000000','0.000000'] )
-        
-        # AND edit the Size to correct tuple
-         # here want to use s2c - as this defines the size of the final FIXED image!
-        fs_ds_pm['Size'] = tuple( 
-            [str("{:.6f}".format( round(self.template_img.GetWidth() * self.s2c['x-um']))), 
-             str("{:.6f}".format( round(self.template_img.GetHeight() * self.s2c['y-um']))),
-             str("{:.6f}".format( round(self.template_img.GetDepth() * self.s2c['z-um']))) ] )
-        
-        # set the output format
-        fs_ds_pm['ResultImageFormat'] = tuple( [ self.brp['fullstack-to-downsampled-save-image-type'] ] )
-        
-        fs_ds_pm = [fs_ds_pm]
-        # wrap in list so this works with transform_image like any other set pof parameter maps!
-        
-        return fs_ds_pm
-        
-    
-    
-    
-    def get_ds_fs_scaling(self):
-        
-        ds_fs_pm = sitk.ReadParameterFile(
-                    os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
-                                      'transformix-parameter-files', 
-                                      '00_scaling.txt') )
-        # see keys with list(ds_fs_pm)
-        # see contents of keys with ds_fs_pm['key']
-        
-        # edit TransformParameters to correct tuple
-         # use s2c - as the registration is FROM fixed TO moving!!!
-        ds_fs_pm['TransformParameters'] = tuple( 
-            [str("{:.6f}".format(self.s2c['x-um'])), 
-             '0.000000', '0.000000','0.000000', 
-             str("{:.6f}".format(self.s2c['y-um'])), 
-             '0.000000','0.000000','0.000000', 
-             str("{:.6f}".format(self.s2c['z-um'])), 
-             '0.000000','0.000000','0.000000'] )
-        
-        # AND edit the Size to correct tuple
-         # here want to use s2c - as this defines the size of the final FIXED image!
-        ds_fs_pm['Size'] = tuple( 
-            [str("{:.6f}".format( round( self.template_img.GetWidth() ))), 
-             str("{:.6f}".format( round( self.template_img.GetHeight() ))),
-             str("{:.6f}".format( round( self.template_img.GetDepth() ))) ] )
-        
-        # set the output format
-        ds_fs_pm['ResultImageFormat'] = tuple( [ self.brp['downsampled-to-fullstack-save-image-type'] ] )
-        
-        ds_fs_pm = [ds_fs_pm]
-        # wrap in list so this works with transform_image like any other set pof parameter maps!
-        
-        return ds_fs_pm
+        if self.downsampling_img =='source':
+            # downsampling the source image : downsampled (target res.) -> source
+            ds_img_pm = sitk.ReadParameterFile(
+                        os.path.join(BRAINREGISTER_MODULE_DIR, 'resources',
+                                          'transformix-parameter-files', 
+                                          '00_scaling.txt') )
+            # see keys with list(ds_img_pm)
+            # see contents of keys with ds_img_pm['key']
+            
+            # edit TransformParameters to correct tuple
+             # use s2c - as the registration is FROM fixed TO moving!!!
+            ds_img_pm['TransformParameters'] = tuple( 
+                [str("{:.6f}".format(self.s2t['x-um'])), 
+                 '0.000000', '0.000000','0.000000', 
+                 str("{:.6f}".format(self.s2t['y-um'])), 
+                 '0.000000','0.000000','0.000000', 
+                 str("{:.6f}".format(self.s2t['z-um'])), 
+                 '0.000000','0.000000','0.000000'] )
+            
+            # AND edit the Size to correct tuple
+             # here want to use source template size - as this defines the size of the final FIXED image!
+            ds_img_pm['Size'] = tuple( 
+                [str("{:.6f}".format( round( self.brp['source-template-size']['x'] ))), 
+                 str("{:.6f}".format( round( self.brp['source-template-size']['y'] ))),
+                 str("{:.6f}".format( round( self.brp['source-template-size']['z'] ))) ] )
+            
+            # set the output format
+            ds_img_pm['ResultImageFormat'] = tuple( [ self.brp['downsampling-save-image-type'] ] )
+            
+            ds_img_pm = [ds_img_pm]
+            # wrap in list so this works with transform_image like any other set pof parameter maps!
+            
+            return ds_img_pm
         
     
     
@@ -972,35 +1958,25 @@ class BrainRegister(object):
     
     
     def load_image(self, path):
-        return sitk.ReadImage(str(path))
-        
+        img = sitk.ReadImage(str(path))
+        img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+        return img
     
     
-    def load_transform_image_fs_ds(self, image_path):
+    
+    def load_transform_anno_img_ds(self, anno_path):
         
-        sample_img = sitk.ReadImage( str(image_path) )
-        sample_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+        img = self.load_image(anno_path)
+        return self.move_anno_img_ds(img)
+    
+
+    
+    def load_transform_image_img_ds(self, image_path):
         
-        if self.brp['fullstack-to-downsampled-adaptive-filter'] == True:
-            print('    running fullstack-to-downsampled adaptive filter..')
-            self.fs_ds_filter_pipeline = self.compute_adaptive_filter_fs_ds()
-            sample_img = self.apply_adaptive_filter(
-                                sample_img, self.fs_ds_filter_pipeline)
+        img = self.load_image(image_path)
+        return self.move_image_img_ds(img)
         
-        # transform with transformix
-        print('    transforming sample image..')
-        print('      image : ' 
-                + self.get_relative_path(image_path) )
-        print('      fullstack-to-downsampled elastix pm file : ' + 
-                self.get_relative_path(self.fs_ds_pm_path[0] ) )
-        print('')
-        print('========================================================================')
-        print('')
-        print('')
-        sample_ds = self.transform_image(sample_img, self.fs_ds_pm)
-        
-        return sample_ds
-        
+    
     
     
     
@@ -1094,316 +2070,1071 @@ class BrainRegister(object):
 
     
     
-    def save_fs_ds_tp_file(self):
+    def save_img_ds_pm_file(self):
         
-        if self.fs_ds_pm_path[0].exists() == False:
-            sitk.WriteParameterFile(self.fs_ds_pm[0], str(self.fs_ds_pm_path[0]) )
-        
-    
-    def load_fs_ds_tp_file(self):
-        """
-        Load fullstack to downsampled parameter map file
-
-        Returns
-        -------
-        list
-            List containing the fs_ds_pm file.
-
-        """
-        
-        if self.fs_ds_pm_path_exists() == True:
-            return [ sitk.ReadParameterFile( str(self.fs_ds_pm_path[0]) ) ]
-        else:
-            return None
-    
-    
-    
-    def save_ds_fs_tp_file(self):
-        
-        if self.ds_fs_pm_path[0].exists() == False:
-            sitk.WriteParameterFile(self.ds_fs_pm[0], str(self.ds_fs_pm_path[0]) )
-        
-    
-    
-    def load_ds_fs_tp_file(self):
-        """
-        Load downsampled to fullstack parameter map file
-
-        Returns
-        -------
-        list
-            List containing the ds_fs_pm file.
-        """
-        
-        if self.ds_fs_pm_path_exists() == True:
-            return [sitk.ReadParameterFile( str(self.ds_fs_pm_path[0]) ) ]
-        else:
-            return None
-        
-    
-    
-    
-    def transform_save_fs_ds_images(self ):
-        
-        if self.brp['fullstack-to-downsampled-save-images'] == True:
-            # now transform and save each sample image
-            print('')
-            print('  transforming and saving fs images to ds..')
+        if self.downsampling_img =='source':
             
-            for i, s in enumerate(self.sample_images):
+            if self.src_tar_ds_pm_path_exists() == False:
                 
-                self.process_image_ds(i)
+                sitk.WriteParameterFile(self.src_tar_ds_pm[0], 
+                                         str(self.src_tar_ds_pm_path[0]) )
                 
-        else:
-            print('')
-            print('  transforming and saving fs images to ds : not requested')
-            print('')
+            
+        elif self.downsampling_img =='target':
+            
+            if self.tar_src_ds_pm_path_exists() == False:
+                
+                sitk.WriteParameterFile(self.tar_src_ds_pm[0], 
+                                         str(self.tar_src_ds_pm_path[0]) )
+                
             
         
+    
+    
+    
+    
+    
+    def save_ds_img_pm_file(self):
+        
+        if self.downsampling_img =='source':
+            
+            if self.tar_src_ds_pm_path_exists() == False:
+                
+                sitk.WriteParameterFile(self.tar_src_ds_pm[0], 
+                                         str(self.tar_src_ds_pm_path[0]) )
+                
+            
+        elif self.downsampling_img =='target':
+            
+            if self.src_tar_ds_pm_path_exists() == False:
+                
+                sitk.WriteParameterFile(self.src_tar_ds_pm[0], 
+                                         str(self.src_tar_ds_pm_path[0]) )
+        
+        
+        
+    
+    
+    
+    
+    
+    def transform_save_high_ds_template(self):
+        
+        if self.downsampling_img == 'source':
+            
+            if self.brp['source-to-target-downsampling-save-template'] == True:
+                
+                if self.source_template_path_ds.exists() == False:
+                    self.source_template_img_ds = self.get_template_ds()
+                    self.save_template_ds()
+                    # DISCARD the template_img - as this can be a large file, best to discard!
+                    self.source_template_img = None
+                    garbage = gc.collect() # run garbage collection to ensure memory is freed
+                else:
+                    print('')
+                    print('  source template in downsampled space exists..')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving source template to ds : not requested')
+                print('')
+            
+            
+        elif self.downsampling_img == 'target':
+            
+            if self.brp['target-to-source-downsampling-save-template'] == True:
+                
+                if self.target_template_path_ds.exists() == False:
+                    self.target_template_img_ds = self.get_template_ds()
+                    self.save_template_ds()
+                    self.target_template_img = None
+                    garbage = gc.collect() # run garbage collection to ensure memory is freed
+                else:
+                    print('')
+                    print('  target template in downsampled space exists..')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving target template to ds : not requested')
+                print('')
+        
+    
+    
+    
+    
+    def transform_save_high_ds_anno(self ):
+        
+        if (self.downsampling_img == 'source'):
+            #source-to-target-downsampling-save-annotations
+            if self.brp['source-to-target-downsampling-save-annotations'] == True:
+                # now transform and save each sample annotation
+                if self.source_anno_path != []:
+                    print('')
+                    print('  transforming and saving source annotations to ds..')
+                    
+                    for i, s in enumerate(self.source_anno_path):
+                        
+                        self.process_anno_ds(i)
+                    
+                else:
+                    print('')
+                    print('  transforming and saving source annotations to ds : no annotations to process')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving source annotations to ds : not requested')
+                print('')
+                
+            
+            
+        elif (self.downsampling_img == 'target'):
+            #target-to-source-downsampling-save-annotations
+            if self.brp['target-to-source-downsampling-save-annotations'] == True:
+                # now transform and save each sample annotation
+                if self.target_anno_path != []:
+                    print('')
+                    print('  transforming and saving target annotations to ds..')
+                    
+                    for i, s in enumerate(self.target_anno_path):
+                        
+                        self.process_anno_ds(i)
+                    
+                else:
+                    print('')
+                    print('  transforming and saving target annotations to ds : no annotations to process')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving target annotations to ds : not requested')
+                print('')
+                
+            
+        
+    
+    
+    
+    
+    def process_anno_ds(self, index):
+        
+        if (self.downsampling_img == 'source'):
+        #source_anno images
+            if (self.source_anno_path_ds != []):
+                
+                if self.source_anno_path_ds[index].exists() == False:
+                    print('')
+                    print('    loading source annotation image : ' 
+                           + self.get_relative_path(
+                               self.source_anno_path_ds[index]) )
+                    
+                    anno_ds = self.load_transform_anno_img_ds(
+                                    self.source_anno_path_ds[index] )
+                    
+                    self.save_anno_ds(index, anno_ds)
+                    
+                else:
+                    print('    downsampled source annotation image exists : ' 
+                           + self.get_relative_path( self.source_anno_path_ds[index]) )
+                    
+                
+            else:
+                print('    no source annotation images to downsample..' )
+                
+                
+        elif (self.downsampling_img == 'target'):
+        #target_anno images
+            if (self.target_anno_path_ds != []):
+                
+                if self.target_anno_path_ds[index].exists() == False:
+                    print('')
+                    print('    loading target annotation image : ' 
+                           + self.get_relative_path(
+                               self.target_anno_path_ds[index]) )
+                    
+                    anno_ds = self.load_transform_anno_img_ds(
+                                    self.target_anno_path_ds[index] )
+                    
+                    self.save_anno_ds(index, anno_ds)
+                    
+                else:
+                    print('    downsampled target annotation image exists : ' 
+                           + self.get_relative_path( self.target_anno_path_ds[index]) )
+                    
+                
+            else:
+                print('    no target annotation images to downsample..' )
+        
+        
+    
+    
+    
+    
+    def transform_save_high_ds_images(self ):
+        
+        if (self.downsampling_img == 'source'):
+            #source-to-target-downsampling-save-images
+            if self.brp['source-to-target-downsampling-save-images'] == True:
+                # now transform and save each sample image
+                
+                if self.source_image_path != []:
+                    
+                    print('')
+                    print('  transforming and saving source images to ds..')
+                    for i, s in enumerate(self.source_image_path):
+                        print('  source image ' + str(i))
+                        self.process_image_ds(i)
+                    
+                else:
+                    print('')
+                    print('  transforming and saving source images to ds : no images to process')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving source images to ds : not requested')
+                print('')
+                
+            
+        elif (self.downsampling_img == 'target'):
+            #target-to-source-downsampling-save-images
+            if self.brp['target-to-source-downsampling-save-images'] == True:
+                # now transform and save each sample image
+                
+                if self.target_image_paths != []:
+                    print('')
+                    print('  transforming and saving target images to ds..')
+                    for i, s in enumerate(self.target_image_paths):
+                        print('  target image ' + str(i))
+                        self.process_image_ds(i)
+                    
+                else:
+                    print('')
+                    print('  transforming and saving target images to ds : no images to process')
+                    print('')
+            else:
+                print('')
+                print('  transforming and saving target images to ds : not requested')
+                print('')
+                
         
     
     
     
     def process_image_ds(self, index):
         
-        if self.sample_images_ds[index].exists() == False:
+        if (self.downsampling_img == 'source'):
+            # source_images
+            if (self.source_image_path_ds is not None):
+                
+                if self.source_image_path_ds[index].exists() == False:
+                    
+                    print('')
+                    print('    loading source image : ' 
+                           + self.get_relative_path(
+                               self.source_image_path[index]) )
+                    
+                    sample_ds = self.load_transform_image_img_ds(
+                                 self.source_image_path[index] )
+                    
+                    self.save_image_ds(index, sample_ds)
+                    
+                else:
+                    print('    downsampled source image exists : ' 
+                           + self.get_relative_path( 
+                               self.source_image_path_ds[index]) )
+                    
+                
+            else:
+                print('    no source images to downsample..' )
+                
+                
+                
+        if (self.downsampling_img == 'target'):
+            # target_images
+            if (self.target_image_paths_ds is not None):
+                
+                if self.target_image_paths_ds[index].exists() == False:
+                    
+                    print('')
+                    print('    loading target image : ' 
+                           + self.get_relative_path(
+                               self.target_image_paths[index]) )
+                    
+                    sample_ds = self.load_transform_image_img_ds(
+                                 self.target_image_paths[index] )
+                    
+                    self.save_image_ds(index, sample_ds)
+                    
+                else:
+                    print('    downsampled target image exists : ' 
+                           + self.get_relative_path( 
+                               self.target_image_paths_ds[index]) )
+                    
+            else:
+                print('    no target images to downsample..' )
+                
             
-            print('')
-            print('    loading sample template image : ' 
-                   + self.get_relative_path(self.sample_images[index]) )
-            sample_ds = self.load_transform_image_fs_ds(self.sample_images[index])
+        
+    
+    
+    
+    
+    
+    def save_anno_ds(self, index, sample_ds):
+        
+        if (self.downsampling_img == 'source'):
+            # save to source anno image path
+            if self.source_anno_path_ds[index].exists() == False:
+                print('    saving downsampled image : ' 
+                   + self.get_relative_path(self.source_anno_path_ds[index]) )
+                self.save_image(sample_ds, self.source_anno_path_ds[index])
+                
             
-            self.save_image_ds(index, sample_ds)
+        elif (self.downsampling_img == 'target'):
+            # save to target anno image path
+            if self.target_anno_path_ds[index].exists() == False:
+                print('    saving downsampled image : ' 
+                   + self.get_relative_path(self.target_anno_path_ds[index]) )
+                self.save_image(sample_ds, self.target_anno_path_ds[index])
+                
             
-        else:
-            print('    downsampled image exists : ' 
-                   + self.get_relative_path( self.sample_images_ds[index]) )
-        
         
     
     
-    def get_image_ds(self, index):
+    
+    def save_image_ds(self, index, sample_ds):
         
-        if self.sample_images_ds[index].exists() == False:
+        if (self.downsampling_img == 'source'):
+            # source_images
+            if self.source_image_path_ds[index].exists() == False:
+                print('    saving source downsampled image : ' 
+                   + self.get_relative_path(
+                       self.source_image_path_ds[index]) )
+                
+                self.save_image(sample_ds, 
+                                 self.source_image_path_ds[index] )
+                
             
-            print('')
-            print('    loading sample template image : ' 
-                   + self.get_relative_path(self.sample_images[index]) )
-            return self.load_transform_image_fs_ds(self.sample_images[index])
-            
-        else:
-            print('    downsampled image exists : loading image' )
-            img = sitk.ReadImage( str(self.sample_images_ds[index]))
-            img.SetSpacing( tuple([1.0, 1.0, 1.0]))
-            return img
-        
-    
-    
-    def save_image_ds(self, index,sample_ds):
-        
-        if self.sample_images_ds[index].exists() == False:
-            print('    saving downsampled image : ' 
-               + self.get_relative_path(self.sample_images_ds[index]) )
-            self.save_image(sample_ds, self.sample_images_ds[index])
+        elif (self.downsampling_img == 'target'):
+            # target_images
+            if self.target_image_paths_ds[index].exists() == False:
+                print('    saving target downsampled image : ' 
+                   + self.get_relative_path(
+                       self.target_image_paths_ds[index]) )
+                
+                self.save_image(sample_ds, 
+                                 self.target_image_paths_ds[index] )
         
     
     
     
-    def register_downsampled_to_ccf(self):
+    
+    def register_source_to_target(self):
         
         print('')
         print('')
-        print('==================')
-        print('DOWNSAMPLED TO CCF')
-        print('==================')
+        print('================')
+        print('SOURCE TO TARGET')
+        print('================')
         print('')
         
         
-        if self.ds_ccf_pm_files_exist() is False:
+        if self.src_tar_pm_files_exist() is False:
             # if the param files do not exist, generate them by registering
-            # ds to ccf template
+            # src template to tar template (using the correct downsampled stack!)
             
-            if self.template_ds_img == None:
+            
+            if (self.downsampling_img == 'source'):
+                # source image is downsampled to target img resolution
+                # so use this to register to target img
                 
-                if self.template_path_ds.exists() == True:
-                    print('  loading ds template image : ', self.template_path_ds.name)
-                    self.template_ds_img = sitk.ReadImage( str(self.template_path_ds) )
-                    self.template_ds_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-                else:
-                    print('  template_ds image does not exist - generating from fs template')
-                    self.template_ds_img = self.get_template_ds()
-            
-            
-            if self.ccf_template_img == None:
-                print('  loading ccf template image : ', self.ccf_template_path.name)
-                # downsampled image is already loaded : sample_template_ds
-                self.ccf_template_img = sitk.ReadImage( str(self.ccf_template_path) )
-                self.ccf_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            
-            
-            # apply adaptive filter - if requested in brp
-            if (self.brp['downsampled-to-ccf-prefilter'] != "none" and
-                 self.ds_ccf_prefiltered == False):
+                if self.source_template_img_ds == None:
+                    
+                    if self.source_template_path_ds.exists() == True:
+                        
+                        print('  loading ds source template image : ', 
+                                        self.source_template_path_ds.name)
+                        self.source_template_img_ds = self.load_image(self.source_template_path_ds)
+                    else:
+                        print('  ds source template image does not exist -'+
+                                ' generating from source template')
+                        self.source_template_img_ds = self.get_template_ds()
                 
-                self.ds_ccf_prefilter()
                 
-            
-            if self.ds_ccf_prefiltered == False:
-                # REGISTRATION - use unfiltered images
-                print('  registering downsampled to ccf..')
-                print('    image : ' + 
-                            self.get_relative_path(self.template_path_ds) )
-                print('')
-                print('========================================================================')
-                print('')
-                print('')
-                self.sample_template_ds_ccf_img = self.register_image(
-                                                    self.template_ds_img, 
-                                                    self.ccf_template_img, 
-                                                    self.ds_ccf_ep )
+                if self.target_template_img == None:
+                    
+                    print('  loading target template image : '+ 
+                                      self.target_template_path.name)
+                    self.target_template_img = self.load_image(self.target_template_path)
                 
-            elif self.ds_ccf_prefiltered == True:
-                # REGISTRATION - use filt images
-                print('  registering downsampled to ccf after prefilter..')
-                print('    image : ' + 
-                            self.get_relative_path(self.template_path_ds) )
-                print('')
-                print('========================================================================')
-                print('')
-                print('')
                 
-                self.sample_template_ds_ccf_img = self.register_image(
-                                                    self.template_ds_img_filt, 
-                                                    self.ccf_template_img_filt, 
-                                                    self.ds_ccf_ep )
-            
-            print('  saving downsampled to ccf parameter map file[s]..')
-            self.save_pm_files( self.ds_ccf_pm_paths )
-            
+                # apply source-to-target filter - if requested in brp and not performed already
+                self.src_tar_prefiltering()
+                    
+                
+                if self.src_tar_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering source to target..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path_ds) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target = self.register_image(
+                                                        self.source_template_img_ds, 
+                                                        self.target_template_img, 
+                                                        self.src_tar_ep )
+                    
+                elif self.src_tar_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering source to target after prefilter..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path_ds) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target_filt = self.register_image(
+                                                        self.source_template_img_ds_filt, 
+                                                        self.target_template_img_filt, 
+                                                        self.src_tar_ep )
+                
+                print('  saving source to target parameter map file[s]..')
+                self.save_pm_files( self.src_tar_pm_paths )
+                
+                
+                
+            if (self.downsampling_img == 'target'):
+                # target image is downsampled to source img resolution
+                # so use source to register to ds target img
+                 
+                if self.source_template_img == None:
+                     
+                     print('  loading source template image : '+ 
+                                       self.source_template_path.name)
+                     self.source_template_img = sitk.ReadImage( 
+                                                 str(self.source_template_path) )
+                     self.source_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+                
+                
+                if self.target_template_img_ds == None:
+                    
+                    if self.target_template_path_ds.exists() == True:
+                        
+                        print('  loading ds target template image : ', 
+                                        self.target_template_path_ds.name)
+                        self.target_template_img_ds = sitk.ReadImage( 
+                                             str(self.target_template_path_ds) )
+                        self.target_template_img_ds.SetSpacing( 
+                                                        tuple([1.0, 1.0, 1.0]) )
+                    else:
+                        print('  ds target template image does not exist -'+
+                                ' generating from target template')
+                        self.target_template_img_ds = self.get_template_ds()
+                
+                
+                # apply source-to-target filter - if requested in brp and not performed already
+                self.src_tar_prefiltering()
+                    
+                
+                if self.src_tar_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering source to target..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path_ds) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target = self.register_image(
+                                                        self.source_template_img, 
+                                                        self.target_template_img_ds, 
+                                                        self.src_tar_ep )
+                    
+                elif self.src_tar_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering source to target after prefilter..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path_ds) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target_filt = self.register_image(
+                                                        self.source_template_img_filt, 
+                                                        self.target_template_img_ds_filt, 
+                                                        self.src_tar_ep )
+                
+                print('  saving source to target parameter map file[s]..')
+                self.save_pm_files( self.src_tar_pm_paths )
+                
+                
+                
+            if (self.downsampling_img == 'none'):
+                # target image is source img resolution
+                # so use source to register to target img
+                
+                if self.source_template_img == None:
+                    
+                    print('  loading source template image : '+ 
+                                      self.source_template_path.name)
+                    self.source_template_img = sitk.ReadImage( 
+                                                str(self.source_template_path) )
+                    self.source_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+                
+                
+                if self.target_template_img == None:
+                    
+                    print('  loading target template image : '+ 
+                                      self.target_template_path.name)
+                    self.target_template_img = sitk.ReadImage( 
+                                                str(self.target_template_path) )
+                    self.target_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+                
+                
+                # apply source-to-target filter - if requested in brp and not performed already
+                self.src_tar_prefiltering()
+                    
+                
+                if self.src_tar_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering source to target..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target = self.register_image(
+                                                        self.source_template_img, 
+                                                        self.target_template_img, 
+                                                        self.src_tar_ep )
+                    
+                elif self.src_tar_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering source to target after prefilter..')
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.source_template_img_target_filt = self.register_image(
+                                                        self.source_template_img_filt, 
+                                                        self.target_template_img_filt, 
+                                                        self.src_tar_ep )
+                
+                print('  saving source to target parameter map file[s]..')
+                self.save_pm_files( self.src_tar_pm_paths )
+                
+                
         else:
-            print('  downsampled to ccf parameter map file[s] already exist : No Registration')
-        
-        
+            print('  source to target parameter map file[s] already exist : No Registration')
+            
+            
     
     
     
-    def register_ccf_to_downsampled(self):
+    
+    def register_target_to_source(self):
         
         print('')
         print('')
-        print('==================')
-        print('CCF TO DOWNSAMPLED')
-        print('==================')
+        print('================')
+        print('TARGET TO SOURCE')
+        print('================')
         print('')
         
         
-        if self.ccf_ds_pm_files_exist() is False: # if the param files do not exist
-            # generate them by registering ccf to ds template
+        if self.tar_src_pm_files_exist() is False:
+            # if the param files do not exist, generate them by registering
+            # tar template to src template (using the correct downsampled stack!)
             
-            if self.template_ds_img == None:
+            
+            if (self.downsampling_img == 'source'):
+                # source image is downsampled to target img resolution
+                # register target to downsampled source image
                 
-                if self.template_path_ds.exists() == True:
-                    print('  loading ds template image : ', self.template_path_ds.name)
-                    self.template_ds_img = sitk.ReadImage( str(self.template_path_ds) )
-                    self.template_ds_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-                else:
-                    print('  template_ds image does not exist - generating from fs template')
-                    self.template_ds_img = self.get_template_ds()
-            
-            
-            if self.ccf_template_img == None:
-                print('  loading ccf template image : ', self.ccf_template_path.name)
-                # downsampled image is already loaded : sample_template_ds
-                self.ccf_template_img = sitk.ReadImage( str(self.ccf_template_path) )
-                self.ccf_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            
-            
-            # apply adaptive filter - if requested in brp
-            if (self.brp['ccf-to-downsampled-prefilter'] != "none" and
-                 self.ccf_ds_prefiltered == False):
+                if self.source_template_img_ds == None:
+                    
+                    if self.source_template_path_ds.exists() == True:
+                        
+                        print('  loading ds source template image : ', 
+                                        self.source_template_path_ds.name)
+                        self.source_template_img_ds = self.load_image(self.source_template_path_ds)
+                    else:
+                        print('  ds source template image does not exist -'+
+                                ' generating from source template')
+                        self.source_template_img_ds = self.get_template_ds()
                 
-                self.ccf_ds_prefilter()
                 
-            
-            
-            if self.ccf_ds_prefiltered == False:
-                # REGISTRATION
-                print('  registering ccf to downsampled..')
-                print('    image : ' + 
-                            self.get_relative_path(self.template_path_ds) )
-                print('')
-                print('========================================================================')
-                print('')
-                print('')
+                if self.target_template_img == None:
+                    
+                    print('  loading target template image : '+ 
+                                      self.target_template_path.name)
+                    self.target_template_img = self.load_image(self.target_template_path)
                 
-                self.sample_template_ccf_ds_img = self.register_image(
-                                                    self.ccf_template_img, 
-                                                    self.template_ds_img, 
-                                                    self.ccf_ds_ep )
                 
-            elif self.ccf_ds_prefiltered == True:
-                # REGISTRATION - use filt images
-                print('  registering ccf to downsampled after prefilter..')
-                print('    image : ' + 
-                            self.get_relative_path(self.template_path_ds) )
-                print('')
-                print('========================================================================')
-                print('')
-                print('')
+                # apply target-to-source filter - if requested in brp and not performed already
+                self.tar_src_prefiltering()
+                    
                 
-                self.sample_template_ccf_ds_img = self.register_image( 
-                                                    self.ccf_template_img_filt, 
-                                                    self.template_ds_img_filt, 
-                                                    self.ccf_ds_ep )
-            
-            print('  saving ccf to downsampled parameter map file[s]..')
-            self.save_pm_files( self.ccf_ds_pm_paths )
-            
+                if self.tar_src_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering target to source..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path_ds) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source = self.register_image( 
+                                                        self.target_template_img, 
+                                                        self.source_template_img_ds, 
+                                                        self.tar_src_ep )
+                    
+                elif self.tar_src_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering target to source after prefilter..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path_ds) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source_filt = self.register_image(
+                                                        self.target_template_img_filt, 
+                                                        self.source_template_img_ds_filt, 
+                                                        self.tar_src_ep )
+                
+                print('  saving target to source parameter map file[s]..')
+                self.save_pm_files( self.tar_src_pm_paths )
+                
+                
+                
+            if (self.downsampling_img == 'target'):
+                # target image is downsampled to source img resolution
+                # so use source to register to ds target img
+                 
+                if self.source_template_img == None:
+                     
+                     print('  loading source template image : '+ 
+                                       self.source_template_path.name)
+                     self.source_template_img = self.load_image(self.source_template_path)
+                
+                
+                if self.target_template_img_ds == None:
+                    
+                    if self.target_template_path_ds.exists() == True:
+                        
+                        print('  loading ds target template image : ', 
+                                        self.target_template_path_ds.name)
+                        self.target_template_img_ds = self.load_image(self.target_template_path_ds)
+                    else:
+                        print('  ds target template image does not exist -'+
+                                ' generating from target template')
+                        self.target_template_img_ds = self.get_template_ds()
+                
+                
+                # apply target-to-source filter - if requested in brp and not performed already
+                self.tar_src_prefiltering()
+                    
+                
+                if self.tar_src_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering target to source..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path_ds) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source = self.register_image(
+                                                        self.target_template_img_ds, 
+                                                        self.source_template_img, 
+                                                        self.tar_src_ep )
+                    
+                elif self.tar_src_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering target to source after prefilter..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path_ds) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source_filt = self.register_image(
+                                                        self.target_template_img_ds_filt, 
+                                                        self.source_template_img_filt, 
+                                                        self.tar_src_ep )
+                
+                print('  saving source to target parameter map file[s]..')
+                self.save_pm_files( self.tar_src_pm_paths )
+                
+                
+                
+            if (self.downsampling_img == 'none'):
+                # target image is source img resolution
+                # so use source to register to target img
+                
+                if self.source_template_img == None:
+                    
+                    print('  loading source template image : '+ 
+                                      self.source_template_path.name)
+                    self.source_template_img = self.load_image(self.source_template_path)
+                
+                
+                if self.target_template_img == None:
+                    
+                    print('  loading target template image : '+ 
+                                      self.target_template_path.name)
+                    self.target_template_img = self.load_image(self.target_template_path)
+                
+                
+                # apply target-to-source filter - if requested in brp and not performed already
+                self.tar_src_prefiltering()
+                    
+                
+                if self.tar_src_prefiltered == False: # if src_tar_filter is set to 'none'
+                    # REGISTRATION - use unfiltered images
+                    print('  registering target to source..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source = self.register_image(
+                                                        self.target_template_img, 
+                                                        self.source_template_img, 
+                                                        self.tar_src_ep )
+                    
+                elif self.tar_src_prefiltered == True:
+                    # REGISTRATION - use filt images
+                    print('  registering target to source after prefilter..')
+                    print('    target : ' + 
+                                self.get_relative_path(self.target_template_path) )
+                    print('    source : ' + 
+                                self.get_relative_path(self.source_template_path) )
+                    print('')
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    self.target_template_img_source_filt = self.register_image(
+                                                        self.target_template_img_filt, 
+                                                        self.source_template_img_filt, 
+                                                        self.tar_src_ep )
+                
+                print('  saving source to target parameter map file[s]..')
+                self.save_pm_files( self.tar_src_pm_paths )
+                
+                
         else:
-            print('  ccf to downsampled parameter map file[s] already exist : No Registration')
+            print('  target to source parameter map file[s] already exist : No Registration')
+            
+            
         
     
     
     
-    def ds_ccf_prefilter(self):
+    
+    
+    def src_tar_prefiltering(self):
         
-        print('  running downsampled to ccf prefilter..')
-        self.ds_ccf_filter_pipeline = self.compute_adaptive_filter(
-            self.brp['downsampled-to-ccf-prefilter'] )
+        if (self.downsampling_img == 'source'):
+            # source image is downsampled to target img resolution
         
-        print('    ds template')
-        self.template_ds_img_filt = self.apply_adaptive_filter(
-                                self.template_ds_img, 
-                                self.ds_ccf_filter_pipeline )
+            if self.brp['source-to-target-filter'] != "none":
+                
+                print('  running source to target prefilter..')
+                self.src_tar_filter_pipeline = self.compute_adaptive_filter(
+                                            self.brp['source-to-target-filter'] )
+                
+                
+                if self.source_template_img_ds_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    ds source template')
+                    else: # filter correctly
+                        print('    ds source template')
+                        self.source_template_img_ds_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img_ds, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    ds source template')
+                    self.source_template_img_ds_filt = self.apply_adaptive_filter(
+                                                self.source_template_img_ds, 
+                                                self.src_tar_filter_pipeline )
+                    
+                
+                if self.target_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    target template')
+                    else: # filter correctly
+                        print('    target template')
+                        self.target_template_img_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    target template')
+                    self.target_template_img_filt = self.apply_adaptive_filter(
+                                                self.target_template_img, 
+                                                self.src_tar_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = True
+                self.tar_src_prefiltered = False
+                
+            else: # no src-to-tar filtering, log this
+                print('  no source to target prefilter..')
+                
+                
+                
+        elif (self.downsampling_img == 'target'):
+            # target image is downsampled to source img resolution
         
-        print('    ccf template')
-        self.ccf_template_img_filt = self.apply_adaptive_filter(
-                                    self.ccf_template_img, 
-                                    self.ds_ccf_filter_pipeline )
-        
-        self.ds_ccf_prefiltered = True # set to True to check if prefiltered later
-        self.ccf_ds_prefiltered = False
+            if self.brp['source-to-target-filter'] != "none":
+                
+                print('  running source to target prefilter..')
+                self.src_tar_filter_pipeline = self.compute_adaptive_filter(
+                                            self.brp['source-to-target-filter'] )
+                
+                
+                if self.source_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    source template')
+                    else: # filter correctly
+                        print('    source template')
+                        self.source_template_img_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    source image')
+                    self.source_template_img_filt = self.apply_adaptive_filter(
+                                                self.source_template_img, 
+                                                self.src_tar_filter_pipeline )
+                    
+                
+                if self.target_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    target template')
+                    else: # filter correctly
+                        print('    target template')
+                        self.target_template_img_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    target template')
+                    self.target_template_img_filt = self.apply_adaptive_filter(
+                                                self.target_template_img, 
+                                                self.src_tar_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = True
+                self.tar_src_prefiltered = False
+                
+            else: # no src-to-tar filtering, log this
+                print('  no source to target prefilter..')
+                
+                
+        elif (self.downsampling_img == 'none'):
+            # target image & source img same resolution!
+            # so no downsampling to use!
+            if self.brp['source-to-target-filter'] != "none":
+                
+                print('  running source to target prefilter..')
+                self.src_tar_filter_pipeline = self.compute_adaptive_filter(
+                                            self.brp['source-to-target-filter'] )
+                
+                if self.source_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    source template')
+                    else: # filter correctly
+                        print('    source template')
+                        self.source_template_img_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    source image')
+                    self.source_template_img_filt = self.apply_adaptive_filter(
+                                                self.source_template_img, 
+                                                self.src_tar_filter_pipeline )
+                    
+                
+                if self.target_template_img_ds_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    ds target template') # just log as if filtering took place
+                    else: # filter correctly
+                        print('    ds target template')
+                        self.target_template_img_ds_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img_ds, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    ds target template')
+                    self.target_template_img_ds_filt = self.apply_adaptive_filter(
+                                                self.target_template_img_ds, 
+                                                self.src_tar_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = True
+                self.tar_src_prefiltered = False
+                
+            else: # no src-to-tar filtering, log this
+                print('  no source to target prefilter..')
+                
+                
     
     
     
-    def ccf_ds_prefilter(self):
+    def tar_src_prefiltering(self):
         
-        print('  running ccf to downsampled prefilter..')
-        self.ccf_ds_filter_pipeline = self.compute_adaptive_filter(
-            self.brp['ccf-to-downsampled-prefilter'] )
-        
-        print('    ds template')
-        self.template_ds_img_filt = self.apply_adaptive_filter(
-                                self.template_ds_img, 
-                                self.ccf_ds_filter_pipeline )
-        
-        print('    ccf template')
-        self.ccf_template_img_filt = self.apply_adaptive_filter(
-                                    self.ccf_template_img, 
-                                    self.ccf_ds_filter_pipeline )
-        
-        self.ds_ccf_prefiltered = False
-        self.ccf_ds_prefiltered = True # set to True to check if prefiltered later
+        if self.brp['target-to-source-filter'] != "none":
+            
+            print('  running target to source prefilter..')
+            self.tar_src_filter_pipeline = self.compute_adaptive_filter(
+                                        self.brp['target-to-source-filter'] )
+            
+            # now run on images depending on which were downsampled
+            
+            if (self.downsampling_img == 'source'):
+                # source image is downsampled to target img resolution
+                
+                
+                if self.source_template_img_ds_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    ds source template')
+                    else: # filter correctly
+                        print('    ds source template')
+                        self.source_template_img_ds_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img_ds, 
+                                                    self.tar_src_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    ds source template')
+                    self.source_template_img_ds_filt = self.apply_adaptive_filter(
+                                                self.source_template_img_ds, 
+                                                self.tar_src_filter_pipeline )
+                    
+                
+                if self.target_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    target template')
+                    else: # filter correctly
+                        print('    target template')
+                        self.target_template_img_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.tar_src_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    target template')
+                    self.target_template_img_filt = self.apply_adaptive_filter(
+                                                self.target_template_img, 
+                                                self.tar_src_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = False
+                self.tar_src_prefiltered = True
+                
+                
+                
+                
+            elif (self.downsampling_img == 'target'):
+            # target image is downsampled to source img resolution
+                
+                
+                if self.source_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    source template')
+                    else: # filter correctly
+                        print('    source template')
+                        self.source_template_img_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    source image')
+                    self.source_template_img_filt = self.apply_adaptive_filter(
+                                                self.source_template_img, 
+                                                self.src_tar_filter_pipeline )
+                    
+                
+                if self.target_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    target template')
+                    else: # filter correctly
+                        print('    target template')
+                        self.target_template_img_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    target template')
+                    self.target_template_img_filt = self.apply_adaptive_filter(
+                                                self.target_template_img, 
+                                                self.src_tar_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = False
+                self.tar_src_prefiltered = True
+                
+                
+            elif (self.downsampling_img == 'none'):
+                # target image & source img same resolution!
+                # so no downsampling to use!
+                
+                if self.source_template_img_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    source template')
+                    else: # filter correctly
+                        print('    source template')
+                        self.source_template_img_filt = self.apply_adaptive_filter(
+                                                    self.source_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    source image')
+                    self.source_template_img_filt = self.apply_adaptive_filter(
+                                                self.source_template_img, 
+                                                self.src_tar_filter_pipeline )
+                    
+                
+                if self.target_template_img_ds_filt != None:
+                    if self.src_tar_prefiltered: # already correctly filtered!
+                        print('    target template') # just log as if filtering took place
+                    else: # filter correctly
+                        print('    target template')
+                        self.target_template_img_filt = self.apply_adaptive_filter(
+                                                    self.target_template_img, 
+                                                    self.src_tar_filter_pipeline )
+                else: # no filtered image exists!
+                    print('    target template')
+                    self.target_template_img_filt = self.apply_adaptive_filter(
+                                                self.target_template_img, 
+                                                self.src_tar_filter_pipeline )
+                
+                # set bools to indicate filtering
+                self.src_tar_prefiltered = False
+                self.tar_src_prefiltered = True
+                
+        else: # no src-to-tar filtering, log this
+            print('  no source to target prefilter..')
+                
+                
     
     
     
@@ -1412,7 +3143,6 @@ class BrainRegister(object):
         Returns the elastix parameter map files as VectorOfParameterMap Object
         
         
-
         Returns
         -------
         parameterMapVector : VectorOfParameterMap
@@ -1424,12 +3154,12 @@ class BrainRegister(object):
         
         for pf in param_files:
             
-            if pf == 'brainregister_affine':
+            if pf == 'brainregister:affine':
                 pm = sitk.ReadParameterFile(
                          os.path.join(BRAINREGISTER_MODULE_DIR, 'resources', 
                                  'elastix-parameter-files', '01_affine.txt') )
                 
-            elif pf == 'brainregister_bspline':
+            elif pf == 'brainregister:bspline':
                 pm = sitk.ReadParameterFile(
                          os.path.join(BRAINREGISTER_MODULE_DIR, 'resources', 
                                  'elastix-parameter-files', '02_bspline.txt') )
@@ -1480,7 +3210,7 @@ class BrainRegister(object):
     
     def save_pm_files(self, pm_paths):
         
-        # move TransformParameters files to downsampled-to-ccf directory
+        # move TransformParameters files to pm_paths
         transform_params = [f for f in os.listdir('.') if os.path.isfile(f) & 
                             os.path.basename(f).startswith("TransformParameters.")]
         
@@ -1505,9 +3235,9 @@ class BrainRegister(object):
         
     
     
-    def ds_ccf_pm_files_exist(self):
+    def src_tar_pm_files_exist(self):
         """
-        Returns true only if all ds_ccf_pm files exist
+        Returns true only if all src_tar_pm files exist
 
         Returns
         -------
@@ -1516,7 +3246,7 @@ class BrainRegister(object):
         """
         
         exists = True
-        for pm in self.ds_ccf_pm_paths:
+        for pm in self.src_tar_pm_paths:
             if pm.exists() is False:
                 exists = False
         
@@ -1524,9 +3254,9 @@ class BrainRegister(object):
         
     
     
-    def ccf_ds_pm_files_exist(self):
+    def tar_src_pm_files_exist(self):
         """
-        Returns true only if all ccf_ds_pm files exist
+        Returns true only if all tar_src_pm files exist
 
         Returns
         -------
@@ -1535,7 +3265,7 @@ class BrainRegister(object):
         """
         
         exists = True
-        for pm in self.ccf_ds_pm_paths:
+        for pm in self.tar_src_pm_paths:
             if pm.exists() is False:
                 exists = False
         
@@ -1545,17 +3275,16 @@ class BrainRegister(object):
     
     def compute_adaptive_filter(self, filter_string):
         
-        if filter_string == 'adaptive':
+        if filter_string == 'brainregister:autofl-filter':
+            # autofluorescence default filter is a radius 4 median filter
             return ImageFilterPipeline('M,4,4,4')
-            # TODO figure out how to COMPUTE an adaptive filter here!
-            #self.sample_template_ds_img, 
-            #self.ccf_template_img
+            # figure out how to COMPUTE an adaptive filter here?!
             
         elif filter_string == 'none':
             return None
             
         else:
-            # TODO syntax for user defining their own filter?
+            # syntax for user defining their own filter?
             # Writing in new Class ImageFilterPipeline
             return ImageFilterPipeline(filter_string)
         
@@ -1578,35 +3307,74 @@ class BrainRegister(object):
     
     
     
-    def transform_downsampled_to_ccf(self):
-    
-        if self.brp['downsampled-to-ccf-save-template'] == True:
+    def transform_source_to_target(self):
+        
+        #if (self.downsampling_img == 'source'): 
+        # NOT NEEDED as no refs to ds or raw image data/paths!
+        
+        if self.brp['source-to-target-save-template'] == True:
             
-            # TRANSFORM : will transform sample template ds to ccf space
-            self.template_ds_ccf_img = self.get_ds_template_ccf()
-            self.save_ds_template_ccf()
-        
-        else:
-            # downsampled to ccf template is not to be saved - pass
-            print('')
-            print('  transforming and saving ds template image to ccf : not requested')
-            print('')
-        
-        
-        if self.brp['downsampled-to-ccf-save-images'] == True:
-            
-            for i,im_ds in enumerate(self.sample_images_ds):
-                
-                # TRANSFORM : will transform sample template ds to ccf space
-                image = self.get_ds_image_ccf(i)
-                
-                self.save_ds_image_ccf(i, image)
-                
+            if self.source_template_path_target.exists() == False:
+                self.source_template_img_target = self.get_src_template_tar()
+                self.save_src_template_tar()
+            else:
+                print('')
+                print('  saving source template to target : image exists')
+                print('')
             
         else:
-            # downsampled to ccf of sample img is not to be saved - pass
             print('')
-            print('  transforming and saving ds images to ccf : not requested')
+            print('  saving source template to target : not requested')
+            print('')
+        
+        
+        if self.brp['source-to-target-save-annotations'] == True:
+            
+            
+            if self.source_anno_path_target != []: # not a blank list
+                print('')
+                print('  source annotations to target : ')
+                print('')
+                for i,im_ds in enumerate(self.source_anno_path_target):
+                    # source_anno_path + _ds + _target all are SAME LENGTH!
+                    print('  annotation image ' + str(i))
+                    anno_img = self.get_src_anno_tar(i)
+                    # save to local var, do not hold onto refs with self.source_image_img_target[i].append()
+                    # user can use load_src_anno_tar() to do this!s
+                    self.save_src_anno_tar(i, anno_img)
+            else:
+                print('')
+                print('  source annotations to target : no annotation images')
+                print('')
+        
+        else:
+            print('')
+            print('  saving source annotations to target : not requested')
+            print('')
+        
+        
+        if self.brp['source-to-target-save-images'] == True:
+            
+            
+            if self.source_image_path_target != []: # not a blank list
+                print('')
+                print('  source images to target :')
+                print('')
+                for i,im_ds in enumerate(self.source_image_path_target):
+                    # source_image_path + _ds + _target all are SAME LENGTH!
+                    print('  source image ' + str(i))
+                    img_tar = self.get_src_image_tar(i)
+                    # save to local var, do not hold onto refs with self.source_image_img_target[i].append()
+                    # user can use load_src_images_tar() to do this!s
+                    self.save_src_image_tar(i, img_tar)
+            else:
+                print('')
+                print('  source images to target : no further images')
+                print('')
+        
+        else:
+            print('')
+            print('  saving source images to target : not requested')
             print('')
             
         
@@ -1617,275 +3385,1081 @@ class BrainRegister(object):
     
     
     
-    def save_ds_template_ccf(self):
+    
+    def transform_target_to_source(self):
+        #if (self.downsampling_img == 'source'): 
+        # NOT NEEDED as no refs to ds or raw image data/paths!
         
-        if self.template_path_ds_ccf.exists() == False:
-            if self.template_ds_ccf_img != None:
-                print('  saving ds template image to ccf : ' +
-                  self.get_relative_path(self.template_path_ds ) )
-                self.save_image(self.template_ds_ccf_img, self.template_path_ds_ccf)
-            else:
-                print('  ds template image in ccf space does not exist - run get_ds_template_ccf()')
-    
-    
-    
-    def get_ds_template_ccf(self):
-        
-        if self.template_path_ds_ccf.exists() == False: # only transform if output does not exist
+        if self.brp['target-to-source-save-template'] == True:
             
-            if self.template_ds_ccf_img == None: # and if the output image is not already loaded!
-                
-                if self.template_path_ds.exists() == False:
-                    print('template ds does not exist - transforming from fs..')
-                    # create template_ds_img by transforming from the fs template image
-                    self.template_ds_img = self.load_transform_image_fs_ds(self.template_path)
-                
-                elif self.template_ds_img is None:
-                    print('template ds image not loaded - loading image..')
-                    self.template_ds_img = sitk.ReadImage( str(self.template_path_ds))
-                    self.template_ds_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-                
-                
-                if self.ds_ccf_pm is None:
-                    print('  ds to ccf paramater maps not loaded - loading files..')
-                    self.ds_ccf_pm = self.load_pm_files( self.ds_ccf_pm_paths )
-                
-                print('  transforming sample template ds image..')
-                print('    image : ' + 
-                        self.get_relative_path(self.template_path_ds) )
-                
-                for i, pm in enumerate(self.ds_ccf_pm_paths):
-                    print('    downsampled-to-ccf paramter map file '+
-                            str(i) + ' : ' + 
-                            self.get_relative_path(pm) )
-                
-                print('========================================================================')
+            if self.target_template_path_source.exists() == False:
+                self.target_template_img_source = self.get_tar_template_src()
+                self.save_tar_template_src()
+            else:
                 print('')
+                print('  saving target template to source : image exists')
                 print('')
-                return self.transform_image(self.template_ds_img, self.ds_ccf_pm )
+        else:
+            print('')
+            print('  saving target template to source : not requested')
+            print('')
+        
+        
+        if self.brp['target-to-source-save-annotations'] == True:
             
+            
+            if self.target_anno_path_source != []: # not a blank list
+                print('')
+                print('  target annotations to source : ')
+                print('')
+                for i,im_ds in enumerate(self.target_anno_path_source):
+                    # source_anno_path + _ds + _target all are SAME LENGTH!
+                    print('  annotation image ' + str(i))
+                    anno_img = self.get_tar_anno_src(i)
+                    # save to local var, do not hold onto refs with self.source_image_img_target[i].append()
+                    # user can use load_src_anno_tar() to do this!s
+                    self.save_tar_anno_src(i, anno_img)
             else:
-                print('  ds template to ccf space exists - returning image..')
-                return self.template_ds_ccf_img
+                print('')
+                print('  target annotations to source : no annotation images')
+                print('')
         
         else:
-            print('  ds template to ccf space exists - loading image..')
-            return self.load_image(self.template_path_ds_ccf)
+            print('')
+            print('  saving target annotations to source : not requested')
+            print('')
         
         
-    
-    
-    
-    def save_ds_image_ccf(self, index, image):
-        
-        if self.sample_images_ds_ccf[index].exists() == False: # only transform if output does not exist
-            print('  saving downsampled to ccf image : ' +
-                  self.get_relative_path(self.sample_images_ds_ccf[index] ) )
-            self.save_image(image, self.sample_images_ds_ccf[index])
+        if self.brp['target-to-source-save-images'] == True:
             
-    
-    
-    
-    def get_ds_image_ccf(self, index):
-        
-        im_ds = self.sample_images_ds[index]
-        
-        if self.sample_images_ds_ccf[index].exists() == False: # only transform if output does not exist
             
-            if im_ds.exists() == False:
-                # create img_ds by transforming from the fs sample image
-                img_ds = self.load_transform_image_fs_ds(self.sample_images[index])
-            
+            if self.target_image_paths_source != []: # not a blank list
+                print('')
+                print('  target images to source :')
+                print('')
+                for i,im_ds in enumerate(self.target_image_paths_source):
+                    # source_image_path + _ds + _target all are SAME LENGTH!
+                    print('  target image ' + str(i))
+                    img_tar = self.get_tar_image_src(i)
+                    # save to local var, do not hold onto refs with self.source_image_img_target[i].append()
+                    # user can use load_src_images_tar() to do this!s
+                    self.save_tar_image_src(i, img_tar)
             else:
-                # if ds sample img exists already, load it!
-                img_ds = sitk.ReadImage( str(im_ds))
-                img_ds.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            
-            
-            if self.ds_ccf_pm is None:
-                print('  ds to ccf paramater maps not loaded - loading files..')
-                self.ds_ccf_pm = self.load_pm_files( self.ds_ccf_pm_paths )
-            
-            
-            print('  transforming sample ds image..')
-            print('    image : ' + 
-                    self.get_relative_path(im_ds) )
-            
-            for j, pm in enumerate(self.ds_ccf_pm_paths):
-                print('    downsampled-to-ccf paramter map file '+
-                        str(j) + ' : ' + 
-                        self.get_relative_path(pm) )
-            print('========================================================================')
-            print('')
-            print('')
-            
-            img_ds_ccf = self.transform_image(img_ds, self.ds_ccf_pm)
-            img_ds_ccf.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return img_ds_ccf
+                print('')
+                print('  target images to source : no further images')
+                print('')
         
         else:
-            print('  ds image to ccf space exists - loading image.. ' +
-                      self.get_relative_path(im_ds))
-            img_ds_ccf =  sitk.ReadImage( str(self.sample_images_ds_ccf[index]))
-            img_ds_ccf.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return img_ds_ccf
-        
-        
-    
-    
-    
-    
-    def transform_ccf_to_downsampled(self):
-        
-        
-        if self.brp['ccf-to-downsampled-save-template'] == True:
-            
-            # TRANSFORM : will transform sample template ds to ccf space
-            self.ccf_template_ds_img = self.get_ccf_template_ds()
-            
-            self.save_ccf_template_ds()
-        
-        else:
-            # downsampled to ccf template is not to be saved - pass
             print('')
-            print('  transforming and saving ccf template image to ds : not requested')
-            print('')
-        
-        
-        if self.brp['ccf-to-downsampled-save-annotation'] == True:
-            
-            # TRANSFORM : will transform ccf annotation to ds space
-            self.ccf_annotation_ds_img = self.get_ccf_annotation_ds()
-            self.save_ccf_annotation_ds()
-            
-        
-        else:
-            # downsampled to ccf of sample img is not to be saved - pass
-            print('')
-            print('  transforming and saving ccf annotation to ds : not requested')
+            print('  saving target images to source : not requested')
             print('')
             
         
         # discard from memory all images/martices not needed - just point vars to blank list!
         garbage = gc.collect() # run garbage collection to ensure memory is freed
         
-    
-    
-    
-    def save_ccf_template_ds(self):
         
-        if self.ccf_template_path_ds.exists() == False: # only transform if output does not exist
-            if self.ccf_template_ds_img != None:
-                print('  saving ccf template image to ds : ' +
-                      self.get_relative_path(self.ccf_template_path_ds ) )
-                self.save_image(self.ccf_template_ds_img, self.ccf_template_path_ds)
-            else:
-                print('  ccf template image in ds space does not exist - run get_ccf_template_ds()')
     
     
     
-    def get_ccf_template_ds(self):
+    def get_src_template_tar(self):
+        '''
+        Get the source template image in target image space
+
+        Returns
+        -------
+        sitk Image
+            Image of the source template in target image space.
+
+        '''
         
-        if self.ccf_template_path_ds.exists() == False: # only transform if output does not exist on disk
+        
+        if (self.downsampling_img == 'source'):
+            # source image is downsampled to target img transformation
+            # so get ds source and transform this to target img
             
-            if self.ccf_template_ds_img == None: # and if the output image is not already loaded!
+            if self.source_template_path_target.exists() == False: 
+                # only transform if output does not exist
+                if self.source_template_img_target == None: 
+                    # and if the output image is not already loaded!
+                    
+                    self.source_template_img_ds = self.get_template_ds()
+                    
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    print('  transforming source template downsampled image to target..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.source_template_path_ds) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    return self.transform_image(self.source_template_img_ds, 
+                                                  self.src_tar_pm )
                 
-                if self.ccf_template_img is None:
-                    print('  ccf template image not loaded - loading image..')
-                    self.ccf_template_img = sitk.ReadImage( str(self.ccf_template_path))
-                    self.ccf_template_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-                
-                
-                if self.ccf_ds_pm is None:
-                    print('  ccf to ds paramater maps not loaded - loading files..')
-                    self.ccf_ds_pm = self.load_pm_files( self.ccf_ds_pm_paths )
-                
-                # transform all input images with transformix
-                print('  transforming ccf template to ds space..')
-                print('    image : ' + 
-                        self.get_relative_path(self.ccf_template_path) )
-                
-                for i, pm in enumerate(self.ccf_ds_pm_paths):
-                    print('    ccf-to-downsampled paramter map file '+
-                            str(i) + ' : ' + 
-                            self.get_relative_path(pm) )
-                
-                print('========================================================================')
-                print('')
-                print('')
-                
-                self.ccf_template_ds_img = self.transform_image(self.ccf_template_img, self.ccf_ds_pm )
-                return self.ccf_template_ds_img
+                else:
+                    print('  downsampled source template to target space exists - returning image..')
+                    return self.source_template_img_target
             
             else:
-                print('  ccf template to ds space exists - returning image..')
-                return self.ccf_template_ds_img
+                print('  downsampled source template to target space exists - loading image..')
+                self.source_template_img_target = self.load_image(self.source_template_path_target)
+                return self.source_template_img_target
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # source images to ds target img THEN ds to target image space
+            
+            if self.source_template_path_target.exists() == False: 
+                # only transform if output does not exist
+                if self.source_template_img_target == None: 
+                    # and if the output image is not already loaded!
+                    
+                    # get source image
+                    if self.source_template_img is None: # AND path exists!
+                        print('  source template image not loaded - loading image..')
+                        self.source_template_img = self.load_image(self.source_template_path)
+                    
+                    
+                    if self.src_tar_pm is None: # this gives source to ds target
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    print('  transforming source template image to downsampled target..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.source_template_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-downsampled-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    img = self.transform_image(self.source_template_img, 
+                                                  self.src_tar_pm )
+                    
+                    # and move source to ds target from ds target to raw target
+                    return self.move_image_ds_img(img)
+                    
+                else:
+                    print('  source template to target space exists - returning image..')
+                    return self.source_template_img_target
+            
+            else:
+                print('  source template to target space exists - loading image..')
+                self.source_template_img_target = self.load_image(self.source_template_path_target)
+                return self.source_template_img_target
         
         
+        elif (self.downsampling_img == 'none'):
+            # source image to target image space (no downsampling in this instance!)
+            
+            if self.source_template_path_target.exists() == False: 
+                # only transform if output does not exist
+                if self.source_template_img_target == None: 
+                    # and if the output image is not already loaded!
+                    
+                    if self.source_template_img is None: # AND path exists!
+                        print('  source template image not loaded - loading image..')
+                        self.source_template_img = self.load_image(self.source_template_path)
+                    
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    print('  transforming source template image to target..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.source_template_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    return self.transform_image(self.source_template_img, 
+                                                  self.src_tar_pm )
+                
+                else:
+                    print('  source template to target space exists - returning image..')
+                    return self.source_template_img_target
+            
+            else:
+                print('  source template to target space exists - loading image..')
+                self.source_template_img_target = self.load_image(self.source_template_path_target)
+                return self.source_template_img_target
+        
+    
+    
+    
+    def save_src_template_tar(self):
+        
+        if self.source_template_path_target.exists() == False:
+            if self.source_template_img_target != None:
+                print('  saving source template to target : ' + 
+                      self.get_relative_path(self.source_template_path_target))
+                self.save_image(self.source_template_img_target, self.source_template_path_target)
+            else:
+                print('  source template in target space does not exist - run get_src_template_tar()')
+                
         else:
-            print('  ccf template to ds space exists - loading image..')
-            self.ccf_template_ds_img = sitk.ReadImage( str(self.ccf_template_path_ds) )
-            self.ccf_template_ds_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return
+            print('  source template in target image space exists')
+    
+    
+    
+    
+    def get_src_anno_tar(self, index):
         
-    
-    
-    
-    def save_ccf_annotation_ds(self):
-        
-        if self.ccf_annotation_path_ds.exists() == False: # only transform if output does not exist
-            if self.ccf_annotation_ds_img != None:
-                print('  saving ccf to downsampled annotation : ' +
-                      self.get_relative_path(self.ccf_annotation_path_ds ) )
-                self.save_image(self.ccf_annotation_ds_img, self.ccf_annotation_path_ds )
-            else:
-                print('  ccf annotation image in ds space does not exist - run get_ccf_annotation_ds()')
-    
-    
-    def get_ccf_annotation_ds(self):
-        
-        if self.ccf_annotation_path_ds.exists() == False: # only transform if output does not exist
+        if (self.downsampling_img == 'source'):
+            # source image is downsampled source to target img transformation
+            # so get ds source and transform this to target img
+            im_path = self.source_anno_path_ds[index]
             
-            if self.ccf_annotation_ds_img == None: # and if the output image is not already loaded!
+            if self.source_anno_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_anno_img_target[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    if im_path.exists() == False:
+                        print('  transforming downsampled source annotation from source anno..')
+                        img_ds = self.load_transform_anno_img_ds(self.source_anno_path[index])
+                    
+                    else:
+                        print('  loading downsampled source annotation..')
+                        img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm_anno is None:
+                        print('  source to target annotation paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                        if self.src_tar_pm == None:
+                            print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                        self.src_tar_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_pm)
+                    
+                    
+                    print('  transforming source downsampled annotation to target..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_ds_tar = self.transform_image(img_ds, self.src_tar_pm_anno)
+                    # not saving to self.source_anno_img_target[index] to minimise memory occupation
+                    return img_ds_tar
                 
-                if self.ccf_annotation_img == None:
-                    self.ccf_annotation_img = sitk.ReadImage(str(self.ccf_annotation_path))
-                    self.ccf_annotation_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
+                else:
+                    print('  source annotation to target space exists - returning image..')
+                    return self.source_anno_img_target[index]
                 
-                if self.ccf_ds_pm_anno == None:
-                    # generate the ccf_ds_pm_anno from ccf_ds_pm
-                    print('  ccf to ds annotation paramater maps not loaded - loading files..')
-                    if self.ccf_ds_pm == None: # load ccf_ds_pm first if needed
-                        self.ccf_ds_pm = self.load_pm_files( self.ccf_ds_pm_paths )
-                        if self.ccf_ds_pm == None:
-                            print("ERROR : ccf_ds_pm files do not exist - run register() first")
-                    self.ccf_ds_pm_anno = self.edit_pms_nearest_neighbour(self.ccf_ds_pm)
-                
-                print('  transforming ccf annotation image..')
-                print('    image : ' + 
-                        self.get_relative_path(self.ccf_annotation_path) )
-                
-                for j, pm in enumerate(self.ccf_ds_pm_paths):
-                    print('    ccf-to-downsampled paramter map file '+
-                            str(j) + ' : ' + 
-                            self.get_relative_path(pm) )
-                print('========================================================================')
-                print('')
-                print('')
-                
-                self.ccf_annotation_ds_img = self.transform_image(self.ccf_annotation_img, self.ccf_ds_pm_anno)
-                return self.ccf_annotation_ds_img
             else:
-                print('  ccf annotation to ds space exists - returning image..')
-                return self.ccf_annotation_ds_img
+                print('  source annotation to target space exists - loading image..')
+                return self.load_image(self.source_anno_path_target[index])
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # source anno to ds target THEN ds to target image space
+            
+            im_path = self.source_anno_path[index]
+            
+            if self.source_anno_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_anno_img_target[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    print('  loading source annotation..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm_anno is None:
+                        print('  source to target annotation paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                        if self.src_tar_pm == None:
+                            print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                        self.src_tar_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_pm)
+                    
+                    
+                    print('  transforming source annotation to downsampled target..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target parameter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    anno_ds_tar = self.transform_image(img_ds, self.src_tar_pm_anno)
+                    # not saving to self.source_anno_img_target[index] to minimise memory occupation
+                    return self.move_anno_ds_img(anno_ds_tar)
+                
+                else:
+                    print('  source annotation to target space exists - returning image..')
+                    return self.source_anno_img_target[index]
+                
+            else:
+                print('  source annotation to target space exists - loading image..')
+                return self.load_image(self.source_anno_path_target[index])
+            
+            
+        elif (self.downsampling_img == 'none'):
+            # source image to target image space (no downsampling in this instance!)
+            
+            im_path = self.source_anno_path[index]
+            
+            if self.source_anno_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_anno_img_target[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    print('  loading source annotation..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm_anno is None:
+                        print('  source to target annotation paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                        if self.src_tar_pm == None:
+                            print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                        self.src_tar_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_pm)
+                    
+                    
+                    print('  transforming source annotation to target..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target parameter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    return self.transform_image(img_ds, self.src_tar_pm_anno)
+                    # not saving to self.source_anno_img_target[index] to minimise memory occupation
+                    
+                else:
+                    print('  source annotation to target space exists - returning image..')
+                    return self.source_anno_img_target[index]
+                
+            else:
+                print('  source annotation to target space exists - loading image..')
+                return self.load_image(self.source_anno_path_target[index])
+            
         
+    
+    
+    
+    
+    def save_src_anno_tar(self, index, image):
+        
+        #if (self.downsampling_img == 'source'):
+        # ds source images to target img 
+        if self.source_anno_path_target[index].exists() == False: # only save if output does not exist
+            print('  saving source annotation to target : ' +
+                  self.get_relative_path(self.source_anno_path_target[index] ) )
+            self.save_image(image, self.source_anno_path_target[index])
+        
+        
+    
+    
+    
+    def load_src_anno_tar(self):
+        '''
+        Load all source annotation images to target into instance variable self.source_image_img_target
+        '''
+        if (self.downsampling_img == 'source'):
+            # ds source images to target img 
+            for i,im_ds in enumerate(self.source_anno_path_ds):
+                self.source_anno_img_target[i] = self.get_src_anno_tar(i)
+        
+    
+    
+    
+    def get_src_image_tar(self, index):
+        
+        
+        if (self.downsampling_img == 'source'):
+            # ds source images to target img 
+            im_path = self.source_image_path_ds[index]
+            
+            if self.source_image_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_image_img_target[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    if im_path.exists() == False:
+                        print('  transforming downsampled source image from source image..')
+                        img_ds = self.load_transform_image_img_ds(self.source_image_path[index])
+                    
+                    else:
+                        print('  loading downsampled source image..')
+                        img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    
+                    print('  transforming source downsampled image to target..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_tar = self.transform_image(img_ds, self.src_tar_pm)
+                    # not saving to self.source_image_img_target[index] to minimise memory occupation
+                    return img_tar
+                
+                else:
+                    print('  downsampled source image to target space exists - returning image..')
+                    return self.source_image_img_target[index]
+                
+            else:
+                print('  downsampled source image to target space exists - loading image..')
+                img_tar = self.load_image(self.source_image_path_target[index])
+                return img_tar
+            
+            
+        if (self.downsampling_img == 'target'):
+            # source anno to ds target THEN ds to target image space
+            im_path = self.source_image_path[index]
+            
+            if self.source_image_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_image_img_target[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    print('  loading source image..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    
+                    print('  transforming source downsampled image to target..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_tar = self.transform_image(img_ds, self.src_tar_pm)
+                    # not saving to self.source_image_img_target[index] to minimise memory occupation
+                    return self.move_image_ds_img(img_tar)
+                
+                else:
+                    print('  downsampled source image to target space exists - returning image..')
+                    return self.source_image_img_target[index]
+                
+            else:
+                print('  downsampled source image to target space exists - loading image..')
+                img_tar = self.load_image(self.source_image_path_target[index])
+                return img_tar
+            
+            
+        if (self.downsampling_img == 'none'):
+            # source anno to ds target THEN ds to target image space
+            im_path = self.source_image_path[index]
+            
+            if self.source_image_path_target[index].exists() == False: 
+                # only transform if output does not exist
+                if self.source_image_img_target[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    print('  loading source image..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    
+                    print('  transforming source downsampled image to target..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    return self.transform_image(img_ds, self.src_tar_pm)
+                    # not saving to self.source_image_img_target[index] to minimise memory occupation
+                    
+                else:
+                    print('  downsampled source image to target space exists - returning image..')
+                    return self.source_image_img_target[index]
+                
+            else:
+                print('  downsampled source image to target space exists - loading image..')
+                img_tar = self.load_image(self.source_image_path_target[index])
+                return img_tar
+        
+        
+    
+    
+    
+    def save_src_image_tar(self, index, image):
+        
+        #if (self.downsampling_img == 'source'):
+        # ds source images to target img 
+        if self.source_image_path_target[index].exists() == False: # only save if output does not exist
+            print('  saving source image to target : ' +
+                  self.get_relative_path(self.source_image_path_target[index] ) )
+            self.save_image(image, self.source_image_path_target[index])
+        
+        
+    
+    
+    
+    def load_src_images_tar(self):
+        '''
+        Load all source images to target into instance variable self.source_image_img_target
+        '''
+        if (self.downsampling_img == 'source'):
+            # ds source images to target img 
+            for i,im_ds in enumerate(self.source_image_path_ds):
+                self.source_image_img_target[i] = self.get_src_image_tar(i)
+        
+    
+    
+    
+    
+    
+    
+    def get_tar_template_src(self):
+        '''
+        Get the target template image in source image space
+
+        Returns
+        -------
+        sitk Image
+            Image of the target template in source image space.
+
+        '''
+        
+        
+        if (self.downsampling_img == 'target'):
+            # target image is downsampled to source img transformation
+            # so get ds target and transform this to source img
+            
+            if self.target_template_path_source.exists() == False: 
+                # only transform if output does not exist
+                if self.target_template_img_source == None: 
+                    # and if the output image is not already loaded!
+                    
+                    self.target_template_img_ds = self.get_template_ds()
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    print('  transforming target template downsampled image to source..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.target_template_path_ds) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    return self.transform_image(self.target_template_img_ds, 
+                                                  self.tar_src_pm )
+                
+                else:
+                    print('  downsampled target template to source space exists - returning image..')
+                    return self.target_template_img_source
+            
+            else:
+                print('  downsampled target template to source space exists - loading image..')
+                self.target_template_img_source = self.load_image(self.target_template_path_source)
+                return self.target_template_img_source
+            
+            
+        elif (self.downsampling_img == 'source'):
+            # target images to ds source img THEN ds to source image space
+            
+            if self.target_template_path_source.exists() == False: 
+                # only transform if output does not exist
+                if self.target_template_img_source == None: 
+                    # and if the output image is not already loaded!
+                    
+                    # get source image
+                    if self.target_template_img is None: # AND path exists!
+                        print('  target template image not loaded - loading image..')
+                        self.target_template_img = self.load_image(self.target_template_path)
+                    
+                    
+                    if self.tar_src_pm is None: # this gives source to ds target
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    print('  transforming target template image to downsampled source..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.target_template_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-downsampled source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    img = self.transform_image(self.target_template_img, 
+                                                  self.tar_src_pm )
+                    
+                    # and move source to ds target from ds target to raw target
+                    return self.move_image_ds_img(img)
+                    
+                else:
+                    print('  target template to source space exists - returning image..')
+                    return self.target_template_img_source
+            
+            else:
+                print('  target template to source space exists - loading image..')
+                self.target_template_img_source = self.load_image(self.target_template_path_source)
+                return self.target_template_img_source
+        
+        
+        elif (self.downsampling_img == 'none'):
+            # target image to source image space (no downsampling in this instance!)
+            
+            if self.target_template_path_source.exists() == False: 
+                # only transform if output does not exist
+                if self.target_template_img_source == None: 
+                    # and if the output image is not already loaded!
+                    
+                    if self.target_template_img is None: # AND path exists!
+                        print('  target template image not loaded - loading image..')
+                        self.target_template_img = self.load_image(self.target_template_path)
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    print('  transforming target template image to source..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.target_template_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    return self.transform_image(self.target_template_img, 
+                                                  self.src_tar_pm )
+                
+                else:
+                    print('  target template to source space exists - returning image..')
+                    return self.target_template_img_source
+            
+            else:
+                print('  target template to source space exists - loading image..')
+                self.target_template_img_source = self.load_image(self.target_template_path_source)
+                return self.target_template_img_source
+        
+    
+    
+    
+    def save_tar_template_src(self):
+        
+        if self.target_template_path_source.exists() == False:
+            if self.source_template_img_target != None:
+                print('  saving target template to source : ' + 
+                      self.get_relative_path(self.target_template_path_source))
+                self.save_image(self.target_template_img_source, self.target_template_path_source)
+            else:
+                print('  target template in source space does not exist - run get_tar_template_src()')
+                
         else:
-            print('  ccf annotation to ds space exists - loading image..')
-            self.ccf_annotation_ds_img = sitk.ReadImage( str(self.ccf_annotation_path_ds) )
-            self.ccf_annotation_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return self.ccf_annotation_ds_img
+            print('  target template in source image space exists')
+    
+    
+    
+    
+    def get_tar_anno_src(self, index):
+        
+        if (self.downsampling_img == 'target'):
+            # target image is downsampled target to source img transformation
+            # so get ds target and transform this to source img
+            im_path = self.target_anno_path_ds[index]
+            
+            if self.target_anno_path_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_anno_img_source[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    if im_path.exists() == False:
+                        print('  transforming downsampled target annotation from target anno..')
+                        img_ds = self.load_transform_anno_img_ds(self.target_anno_path[index])
+                    
+                    else:
+                        print('  loading downsampled target annotation..')
+                        img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm_anno is None:
+                        print('  target to source annotation paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                        if self.tar_src_pm == None:
+                            print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                        self.tar_src_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_pm)
+                    
+                    
+                    print('  transforming target downsampled annotation to source..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_ds_tar = self.transform_image(img_ds, self.tar_src_pm_anno)
+                    # not saving to self.target_anno_img_source[index] to minimise memory occupation
+                    return img_ds_tar
+                
+                else:
+                    print('  target annotation to source space exists - returning image..')
+                    return self.target_anno_img_source[index]
+                
+            else:
+                print('  target annotation to source space exists - loading image..')
+                # not saving to self.target_anno_img_source[index] to minimise memory occupation
+                return self.load_image(self.target_anno_path_source[index])
+            
+            
+        elif (self.downsampling_img == 'source'):
+            # target anno to ds source THEN ds to source image space
+            
+            im_path = self.target_anno_path[index]
+            
+            if self.target_anno_path_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_anno_img_source[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    print('  loading target annotation..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm_anno is None:
+                        print('  target to source annotation paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                        if self.tar_src_pm == None:
+                            print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                        self.tar_src_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_pm)
+                    
+                    
+                    print('  transforming target annotation to downsampled source..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source parameter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    anno_ds_src = self.transform_image(img_ds, self.tar_src_pm_anno)
+                    # not saving to self.source_anno_img_target[index] to minimise memory occupation
+                    return self.move_anno_ds_img(anno_ds_src)
+                
+                else:
+                    print('  target annotation to source space exists - returning image..')
+                    return self.target_anno_img_source[index]
+                
+            else:
+                print('  target annotation to source space exists - loading image..')
+                return self.load_image(self.target_anno_path_source[index])
+            
+            
+        elif (self.downsampling_img == 'none'):
+            # target image to source image space (no downsampling in this instance!)
+            
+            im_path = self.target_anno_path[index]
+            
+            if self.target_anno_path_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_anno_img_source[index] == None: 
+                    # and if the output anno is not already loaded!
+                    
+                    print('  loading downsampled target annotation..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm_anno is None:
+                        print('  target to source annotation paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                        if self.tar_src_pm == None:
+                            print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                        self.tar_src_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_pm)
+                    
+                    
+                    print('  transforming target annotation to source..')
+                    print('    image : ' + self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source parameter map file '+
+                                str(i) + ' : ' + self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    return self.transform_image(img_ds, self.tar_src_pm_anno)
+                    # not saving to self.target_anno_img_source[index] to minimise memory occupation
+                    
+                else:
+                    print('  target annotation to source space exists - returning image..')
+                    return self.target_anno_img_source[index]
+                
+            else:
+                print('  target annotation to source space exists - loading image..')
+                # not saving to self.target_anno_img_source[index] to minimise memory occupation
+                return self.load_image(self.target_anno_path_source[index])
+            
+        
+    
+    
+    
+    
+    def save_tar_anno_src(self, index, image):
+        
+        #if (self.downsampling_img == 'source'):
+        # ds source images to target img 
+        if self.target_anno_path_source[index].exists() == False: # only save if output does not exist
+            print('  saving target annotation to source : ' +
+                  self.get_relative_path(self.target_anno_path_source[index] ) )
+            self.save_image(image, self.target_anno_path_source[index])
         
         
+    
+    
+    
+    def load_tar_anno_src(self):
+        '''
+        Load all target annotation images to source into instance variable self.target_image_img_source
+        '''
+        if (self.downsampling_img == 'target'):
+            # ds source images to target img 
+            for i,im_ds in enumerate(self.target_anno_path_ds):
+                self.target_anno_img_source[i] = self.get_tar_anno_src(i)
+        
+    
+    
+    
+    def get_tar_image_src(self, index):
+        
+        
+        if (self.downsampling_img == 'target'):
+            # ds target images to source img 
+            im_path = self.target_image_paths_ds[index]
+            
+            if self.target_image_paths_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_image_img_source[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    if im_path.exists() == False:
+                        print('  transforming downsampled target image from target image..')
+                        img_ds = self.load_transform_image_img_ds(self.target_image_path[index])
+                    
+                    else:
+                        print('  loading downsampled target image..')
+                        img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    
+                    print('  transforming target downsampled image to source..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_src = self.transform_image(img_ds, self.tar_src_pm)
+                    # not saving to self.target_image_img_source[index] to minimise memory occupation
+                    return img_src
+                
+                else:
+                    print('  downsampled target image to source space exists - returning image..')
+                    return self.target_image_img_source[index]
+                
+            else:
+                print('  downsampled target image to source space exists - loading image..')
+                img_src = self.load_image(self.target_image_paths_source[index])
+                # not saving to self.target_image_img_source[index] to minimise memory occupation
+                return img_src
+            
+            
+        if (self.downsampling_img == 'source'):
+            # target anno to ds source THEN ds to source image space
+            im_path = self.target_image_path[index]
+            
+            if self.target_image_paths_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_image_img_source[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    print('  loading downsampled target image..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    
+                    print('  transforming target downsampled image to source..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_src = self.transform_image(img_ds, self.tar_src_pm)
+                    # not saving to self.target_image_img_source[index] to minimise memory occupation
+                    return self.move_image_ds_img(img_src)
+                
+                else:
+                    print('  downsampled target image to source space exists - returning image..')
+                    return self.target_image_img_source[index]
+                
+            else:
+                print('  downsampled target image to source space exists - loading image..')
+                img_src = self.load_image(self.target_image_paths_source[index])
+                # not saving to self.target_image_img_source[index] to minimise memory occupation
+                return img_src
+            
+            
+        if (self.downsampling_img == 'none'):
+            # target anno to source image space (no downsampling)
+            im_path = self.target_image_path[index]
+            
+            if self.target_image_paths_source[index].exists() == False: 
+                # only transform if output does not exist
+                if self.target_image_img_source[index] == None: 
+                    # and if the output image is not already loaded!
+                    
+                    print('  loading downsampled target image..')
+                    img_ds = self.load_image(im_path)
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    
+                    print('  transforming target downsampled image to source..')
+                    print('    image : ' + 
+                            self.get_relative_path(im_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source parameter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    return self.transform_image(img_ds, self.tar_src_pm)
+                    # not saving to self.target_image_img_source[index] to minimise memory occupation
+                    
+                else:
+                    print('  downsampled target image to source space exists - returning image..')
+                    return self.target_image_img_source[index]
+                
+            else:
+                print('  downsampled target image to source space exists - loading image..')
+                img_src = self.load_image(self.target_image_paths_source[index])
+                # not saving to self.target_image_img_source[index] to minimise memory occupation
+                return img_src
+        
+        
+    
+    
+    
+    def save_tar_image_src(self, index, image):
+        
+        #if (self.downsampling_img == 'source'):
+        # ds target images to source img 
+        if self.target_image_paths_source[index].exists() == False: # only save if output does not exist
+            print('  saving target image to source : ' +
+                  self.get_relative_path(self.target_image_paths_source[index] ) )
+            self.save_image(image, self.target_image_paths_source[index])
+        
+        
+    
+    
+    
+    def load_tar_images_src(self):
+        '''
+        Load all target images to source into instance variable self.target_image_img_source
+        '''
+        if (self.downsampling_img == 'target'):
+            # ds target images to source img 
+            for i,im_ds in enumerate(self.target_image_paths_ds):
+                self.target_image_img_source[i] = self.get_tar_image_src(i)
+        
+    
     
     
     
@@ -1905,153 +4479,397 @@ class BrainRegister(object):
     
     
     
-    def transform_downsampled_to_fullstack(self):
+    def transform_lowres_to_downsampled(self):
         
-        print('')
-        print('')
-        print('========================')
-        print('DOWNSAMPLED TO FULLSTACK')
-        print('========================')
-        print('')
         
-        if self.brp['downsampled-to-fullstack-save-template'] == True:
+        if (self.downsampling_img == 'source'):
+            # TARGET is low res. : move target images from target to ds source
+            print('')
+            print('')
+            print('=====================')
+            print('TARGET TO DOWNSAMPLED')
+            print('=====================')
+            print('')
             
-            # TRANSFORM : will ccf template ds to fs space
-            self.ccf_template_ds_fs_img = self.get_ccf_template_ds_fs()
-            self.save_ccf_template_ds_fs()
-        
+            # transform and save target template to ds source image space as requested
+            self.transform_save_low_ds_template()
+            
+            # also transform and save target annotation images - if requested in the params file
+            self.transform_save_low_ds_anno()
+            
+            # also transform and save other target images - if requested in the params file
+            self.transform_save_low_ds_images()
+            
+            
+        elif (self.downsampling_img == 'target'):
+            # SOURCE is low res. : move source images from source to ds target
+            
+            print('')
+            print('')
+            print('=====================')
+            print('SOURCE TO DOWNSAMPLED')
+            print('=====================')
+            print('')
+            
+            # transform and save source template to ds image as requested
+            self.transform_save_low_ds_template()
+            
+            # also transform and save source annotation images - if requested in the params file
+            self.transform_save_low_ds_anno()
+            
+            # also transform and save other source images - if requested in the params file
+            self.transform_save_low_ds_images()
+            
         else:
-            # downsampled to ccf template is not to be saved - pass
-            print('')
-            print('  transforming and saving ccf template ds image to fs : not requested')
-            print('')
-            
-        
-        if self.brp['downsampled-to-fullstack-save-annotation'] == True:
-            
-            # TRANSFORM : will transform ccf annotation to ds space
-            self.ccf_annotation_ds_fs_img = self.get_ccf_annotation_ds_fs()
-            self.save_ccf_annotation_ds_fs()
-            
-        
-        else:
-            # downsampled to ccf of sample img is not to be saved - pass
-            print('')
-            print('  transforming and saving ccf annotation ds to fs : not requested')
-            print('')
-            
-        
-        # discard from memory all images/martices not needed - just point vars to blank list!
-        garbage = gc.collect() # run garbage collection to ensure memory is freed
+            # no downsampling!
+            print('source and target template same resolution - no downsampling performed.')
         
     
     
     
-    
-    def save_ccf_template_ds_fs(self):
+    def transform_save_low_ds_template(self):
         
-        if self.ccf_template_path_ds_fs.exists() == False: # only save if output does not exist
-            print('  saving ccf template ds image to fs : ' +
-                  self.get_relative_path(self.ccf_template_path_ds_ds ) )
-            self.save_image(self.ccf_template_ds_fs_img, self.ccf_template_path_ds_fs)
-    
-    
-    
-    def get_ccf_template_ds_fs(self):
-        
-        if self.ccf_template_path_ds_fs.exists() == False: # only transform if output does not exist
-            
-            if self.ccf_template_ds_fs_img == None: # and if the output image is not already loaded!
-            
-                if self.ccf_template_ds_img is None:
-                    print('  ccf template image not loaded - loading image..')
-                    self.ccf_template_ds_img = self.get_ccf_template_ds()
+        if self.downsampling_img == 'source':
+            # transform and save target template to ds source image space as requested
+            if self.brp['target-to-source-downsampling-save-template'] == True:
                 
-                
-                if self.ds_fs_pm is None:
-                    print('  ccf to ds paramater maps not loaded - loading files..')
-                    self.ds_fs_pm = self.load_pm_files( self.ds_fs_pm_path )
-                
-                # transform all input images with transformix
-                print('  transforming ccf template ds to fs space..')
-                print('    image : ' + 
-                        self.get_relative_path(self.ccf_template_path_ds) )
-                
-                for i, pm in enumerate(self.ds_fs_pm_path):
-                    print('    downsampled to fullstack paramter map file '+
-                            str(i) + ' : ' + 
-                            self.get_relative_path(pm) )
-                
-                print('========================================================================')
-                print('')
-                print('')
-                
-                return self.transform_image(self.ccf_template_ds_img, self.ds_fs_pm )
-            
+                if self.target_template_path_ds.exists() == False: 
+                    # only transform if output does not exist
+                    if self.target_template_img == None:
+                        print('  loading target template image : ' + 
+                          self.get_relative_path(self.target_template_path) )
+                        self.target_template_img = self.load_image(self.target_template_path)
+                    
+                    
+                    if self.tar_src_pm is None:
+                        print('  target to source paramater maps not loaded - loading files..')
+                        self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                    
+                    
+                    print('  transforming target template to downsampled source..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.target_template_path) )
+                    
+                    for i, pm in enumerate(self.tar_src_pm_paths):
+                        print('    target-to-source paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_ds_src = self.transform_image(self.target_template_img, self.tar_src_pm)
+                    
+                    self.save_image(img_ds_src, self.target_template_path_ds)
+                    
+                    self.target_template_img = None
+                    garbage = gc.collect() # run garbage collection to ensure memory is freed
+                    
+                    
+                else:
+                    print('')
+                    print('  target template to downsampled source : exists')
+                    print('')
             else:
-                print('  ccf template ds to fs space exists - returning image..')
-                return self.ccf_template_ds_fs_img
-        
-        else:
-            print('  ccf template ds to fs space exists - loading image..')
-            self.ccf_template_ds_fs_img = sitk.ReadImage( str(self.ccf_template_path_ds_fs) )
-            self.ccf_template_ds_fs_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return self.ccf_template_ds_fs_img
-        
-    
-    
-    
-    def save_ccf_annotation_ds_fs(self):
-        
-        if self.ccf_annotation_path_ds_fs.exists() == False: # only save if output does not exist
-            print('  saving ds annotation to fs : ' +
-                  self.get_relative_path(self.ccf_annotation_path_ds_fs ) )
-            self.save_image(self.ccf_annotation_ds_fs_img, self.ccf_annotation_path_ds_fs )
-    
-    
-    
-    def get_ccf_annotation_ds_fs(self):
-        
-        if self.ccf_annotation_path_ds_fs.exists() == False: # only transform if output does not exist
+                print('')
+                print('  target template to downsampled source : not requested')
+                print('')
             
-            if self.ccf_annotation_ds_fs_img == None: # and if the output image is not already loaded!
+            
+        elif self.downsampling_img == 'target':
+            # transform and save source template to ds target image space as requested
+            if self.brp['source-to-target-downsampling-save-template'] == True:
                 
-                if self.ccf_annotation_ds_img == None:
-                    self.ccf_annotation_ds_img = self.get_ccf_annotation_ds()
-                
-                if self.ds_fs_pm_anno == None:
-                    # generate the ds_fs_pm_anno from ccf_ds_pm
-                    print('  ds to fs annotation paramater maps not loaded - loading files..')
-                    if self.ds_fs_pm == None: # load ccf_ds_pm first if needed
-                        self.ds_fs_pm = self.load_pm_files( self.ds_fs_pm_path )
-                        if self.ds_fs_pm == None:
-                            print("ERROR : ds_fs_pm files do not exist - run register() first")
-                    self.ds_fs_pm_anno = self.edit_pms_nearest_neighbour(self.ds_fs_pm)
-                
-                print('  transforming ccf annotation ds image..')
-                print('    image : ' + 
-                        self.get_relative_path(self.ccf_annotation_path_ds) )
-                
-                for j, pm in enumerate(self.ds_fs_pm_path):
-                    print('    downsampled-to-fullstack paramter map file '+
-                            str(j) + ' : ' + 
-                            self.get_relative_path(pm) )
-                print('========================================================================')
-                print('')
-                print('')
-                
-                return self.transform_image(self.ccf_annotation_ds_img, self.ds_fs_pm_anno)
+                if self.source_template_path_ds.exists() == False: 
+                    # only transform if output does not exist
+                    if self.source_template_img == None:
+                        print('  loading source template image : ' + 
+                          self.get_relative_path(self.source_template_path) )
+                        self.source_template_img = self.load_image(self.source_template_path)
+                    
+                    if self.src_tar_pm is None:
+                        print('  source to target paramater maps not loaded - loading files..')
+                        self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                    
+                    
+                    print('  transforming source template to downsampled target..')
+                    print('    image : ' + 
+                            self.get_relative_path(self.source_template_path) )
+                    
+                    for i, pm in enumerate(self.src_tar_pm_paths):
+                        print('    source-to-target paramter map file '+
+                                str(i) + ' : ' + 
+                                self.get_relative_path(pm) )
+                    print('========================================================================')
+                    print('')
+                    print('')
+                    
+                    img_ds_tar = self.transform_image(self.source_template_img, self.src_tar_pm)
+                    
+                    self.save_image(img_ds_tar, self.source_template_path_ds)
+                    
+                    self.source_template_img = None
+                    garbage = gc.collect() # run garbage collection to ensure memory is freed
+                    
+                    
+                else:
+                    print('')
+                    print('  source template to downsampled target : exists')
+                    print('')
             else:
-                print('  ccf annotation ds to fs space exists - returning image..')
-                return self.ccf_annotation_ds_fs_img
+                print('')
+                print('  transforming and saving source template to downsampled target image space : not requested')
+                print('')
         
-        else:
-            print('  ccf annotation ds to fs space exists - loading image..')
-            self.ccf_annotation_ds_fs_img = sitk.ReadImage( str(self.ccf_annotation_path_ds_fs) )
-            self.ccf_annotation_ds_fs_img.SetSpacing( tuple([1.0, 1.0, 1.0]) )
-            return self.ccf_annotation_ds_fs_img
+    
+    
+    
+    
+    def transform_save_low_ds_anno(self):
         
+        if self.downsampling_img == 'source':
+            # transform and save target template to ds source image space as requested
+            if self.brp['target-to-source-downsampling-save-annotations'] == True:
+                
+                if self.target_anno_path != []:
+                    print('')
+                    print('  transforming and saving target annotations to ds..')
+                    
+                    for i, s in enumerate(self.target_anno_path):
+                        
+                        if self.target_anno_path_ds[i].exists() == False: 
+                            # only transform if output does not exist
+                            if self.target_anno_img[i] == None:
+                                print('  loading target anno image : ' + 
+                                  self.get_relative_path(self.target_anno_path[i]) )
+                                tar_anno_img = self.load_image(self.target_anno_path[i])
+                            else:
+                                tar_anno_img = self.target_anno_img[i]
+                            
+                            
+                            if self.tar_src_pm is None:
+                                print('  target to source paramater maps not loaded - loading files..')
+                                self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                                if self.tar_src_pm == None:
+                                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                                self.tar_src_pm_anno = self.edit_pms_nearest_neighbour(self.tar_src_pm)
+                            
+                            print('  transforming target annotation to downsampled source..')
+                            print('    image : ' + 
+                                    self.get_relative_path(self.target_anno_path[i]) )
+                            
+                            for j, pm in enumerate(self.tar_src_pm_paths):
+                                print('    target-to-source paramter map file '+
+                                        str(j) + ' : ' + 
+                                        self.get_relative_path(pm) )
+                            print('========================================================================')
+                            print('')
+                            print('')
+                            
+                            img_ds_src = self.transform_image(tar_anno_img, self.tar_src_pm_anno)
+                            
+                            self.save_image(img_ds_src, self.target_anno_path_ds[i])
+                            
+                        else:
+                            print('')
+                            print('  target annotation to downsampled source : exists')
+                            print('')
+                    
+                else:
+                    print('')
+                    print('  transforming and saving target annotations to downsampled source image space : no annotations to process')
+                    print('')
+                    
+                
+            else:
+                print('')
+                print('  transforming and saving target annotations to downsampled source image space : not requested')
+                print('')
+            
+            
+        elif self.downsampling_img == 'target':
+            # transform and save source template to ds target image space as requested
+            if self.brp['source-to-target-downsampling-save-annotations'] == True:
+                
+                if self.source_anno_path != []:
+                    print('')
+                    print('  transforming and saving source annotations to ds..')
+                    
+                    for i, s in enumerate(self.source_anno_path):
+                        
+                        if self.source_anno_path_ds[i].exists() == False: 
+                            # only transform if output does not exist
+                            if self.source_anno_img[i] == None:
+                                print('  loading source anno image : ' + 
+                                  self.get_relative_path(self.source_anno_path[i]) )
+                                src_anno_img = self.load_image(self.source_anno_path[i])
+                            else:
+                                src_anno_img = self.source_anno_img[i]
+                            
+                            
+                            if self.src_tar_pm is None:
+                                print('  source to target paramater maps not loaded - loading files..')
+                                self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                                if self.src_tar_pm == None:
+                                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                                self.src_tar_pm_anno = self.edit_pms_nearest_neighbour(self.src_tar_pm)
+                            
+                            print('  transforming source annotation to downsampled target..')
+                            print('    image : ' + 
+                                    self.get_relative_path(self.source_anno_path[i]) )
+                            
+                            for j, pm in enumerate(self.src_tar_pm_paths):
+                                print('    source-to-target paramter map file '+
+                                        str(j) + ' : ' + 
+                                        self.get_relative_path(pm) )
+                            print('========================================================================')
+                            print('')
+                            print('')
+                            
+                            img_ds_tar = self.transform_image(src_anno_img, self.src_tar_pm_anno)
+                            
+                            self.save_image(img_ds_tar, self.source_anno_path_ds[i])
+                            
+                        else:
+                            print('')
+                            print('  source annotation to downsampled target : exists')
+                            print('')
+                    
+                else:
+                    print('')
+                    print('  transforming and saving source annotations to downsampled target image space : no annotations to process')
+                    print('')
+                
+            else:
+                print('')
+                print('  transforming and saving source annotations to downsampled target image space : not requested')
+                print('')
         
+    
+    
+    
+    
+    
+    def transform_save_low_ds_images(self):
+        
+        if self.downsampling_img == 'source':
+            # transform and save target template to ds source image space as requested
+            if self.brp['target-to-source-downsampling-save-images'] == True:
+                
+                if self.target_image_paths != []:
+                    print('')
+                    print('  transforming and saving target images to ds..')
+                    
+                    for i, s in enumerate(self.target_image_paths):
+                        
+                        if self.target_image_paths_ds[i].exists() == False: 
+                            # only transform if output does not exist
+                            if self.target_image_imgs[i] == None:
+                                print('  loading target image : ' + 
+                                  self.get_relative_path(self.target_image_paths[i]) )
+                                tar_img = self.load_image(self.target_image_paths[i])
+                            else:
+                                tar_img = self.target_image_imgs[i]
+                            
+                            
+                            if self.tar_src_pm is None:
+                                print('  target to source paramater maps not loaded - loading files..')
+                                self.tar_src_pm = self.load_pm_files( self.tar_src_pm_paths )
+                                if self.tar_src_pm == None:
+                                    print("ERROR : tar_src_ds_pm files do not exist - run register() first")
+                            
+                            print('  transforming target image to downsampled source..')
+                            print('    image : ' + 
+                                    self.get_relative_path(self.target_image_paths[i]) )
+                            
+                            for j, pm in enumerate(self.tar_src_pm_paths):
+                                print('    target-to-source paramter map file '+
+                                        str(j) + ' : ' + 
+                                        self.get_relative_path(pm) )
+                            print('========================================================================')
+                            print('')
+                            print('')
+                            
+                            img_ds_src = self.transform_image(tar_img, self.tar_src_pm)
+                            
+                            self.save_image(img_ds_src, self.target_image_paths_ds[i])
+                            
+                        else:
+                            print('')
+                            print('  target image to downsampled source : exists')
+                            print('')
+                    
+                else:
+                    print('')
+                    print('  transforming and saving target images to downsampled source image space : no images to process')
+                    print('')
+                    
+                
+            else:
+                print('')
+                print('  transforming and saving target images to downsampled source image space : not requested')
+                print('')
+            
+            
+        elif self.downsampling_img == 'target':
+            # transform and save source template to ds target image space as requested
+            if self.brp['source-to-target-downsampling-save-images'] == True:
+                
+                if self.source_image_paths != []:
+                    print('')
+                    print('  transforming and saving source images to ds..')
+                    
+                    for i, s in enumerate(self.source_image_paths):
+                        
+                        if self.source_anno_path_ds[i].exists() == False: 
+                            # only transform if output does not exist
+                            if self.source_image_imgs[i] == None:
+                                print('  loading source image : ' + 
+                                  self.get_relative_path(self.source_image_paths[i]) )
+                                src_img = self.load_image(self.source_image_paths[i])
+                            else:
+                                src_img = self.source_image_imgs[i]
+                            
+                            
+                            if self.src_tar_pm is None:
+                                print('  source to target paramater maps not loaded - loading files..')
+                                self.src_tar_pm = self.load_pm_files( self.src_tar_pm_paths )
+                                if self.src_tar_pm == None:
+                                    print("ERROR : src_tar_ds_pm files do not exist - run register() first")
+                            
+                            print('  transforming source image to downsampled target..')
+                            print('    image : ' + 
+                                    self.get_relative_path(self.source_image_paths[i]) )
+                            
+                            for j, pm in enumerate(self.src_tar_pm_paths):
+                                print('    source-to-target paramter map file '+
+                                        str(j) + ' : ' + 
+                                        self.get_relative_path(pm) )
+                            print('========================================================================')
+                            print('')
+                            print('')
+                            
+                            img_ds_tar = self.transform_image(src_img, self.src_tar_pm)
+                            
+                            self.save_image(img_ds_tar, self.source_image_paths_ds[i])
+                            
+                        else:
+                            print('')
+                            print('  source image to downsampled target : exists')
+                            print('')
+                    
+                else:
+                    print('')
+                    print('  transforming and saving source images to downsampled target image space : no images to process')
+                    print('')
+                
+            else:
+                print('')
+                print('  transforming and saving source images to downsampled target image space : not requested')
+                print('')
+        
+    
+    
     
 
 
@@ -2081,6 +4899,15 @@ class ImageFilterPipeline(object):
                 
                 self.img_filter.append(flt)
                 self.img_filter_name.append('Median')
+                self.img_filter_kernel.append(filter_kernel)
+                
+            elif filter_code == 'E':
+                
+                flt = sitk.MeanImageFilter()
+                flt.SetRadius(filter_kernel)
+                
+                self.img_filter.append(flt)
+                self.img_filter_name.append('Mean')
                 self.img_filter_kernel.append(filter_kernel)
                 
             elif filter_code == 'G':
@@ -2126,8 +4953,11 @@ class ImageFilterPipeline(object):
         self.img = img
     
     
+    
     def get_image(self):
         return self.img
+    
+    
     
     def dereference_image(self):
         """
@@ -2147,6 +4977,7 @@ class ImageFilterPipeline(object):
         return self.filtered_img
     
     
+    
     def execute_pipeline(self):
         
         img = self.img
@@ -2161,6 +4992,7 @@ class ImageFilterPipeline(object):
         self.filtered_img = img
         
         return self.filtered_img
+    
     
     
     def cast_image(self):
