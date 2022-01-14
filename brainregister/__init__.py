@@ -1786,25 +1786,11 @@ class BrainRegister(object):
         if (self.downsampling_img == 'source'):
             # target-to-source resolution diff. used to compute filter radius
             # Median of res. diff for smoothed downsampling
-            if round( (self.t2s['z-um'] ) / 2) != 0:
-                return ImageFilterPipeline(
+            return ImageFilterPipeline(
                     str("M,"+
                     str(round( (self.t2s['x-um'] ) / 2)) + ',' +
                     str(round( (self.t2s['y-um'] ) / 2)) + ',' +
                     str(round( (self.t2s['z-um'] ) / 2)) ) )
-            else:
-                # ALSO Mean with Z radius 1 to ensure some blurring BEYOND the downsampling in Z
-                # this helps even out any differences in intensity between Z slices
-                # This is a bit of a hack for now, as the intensities are moved to slightly
-                # different z slices with the MedZ1 filter - so the stack doesnt
-                # really reflect the original stack!  Would be better to average 2 slices
-                # rather than median of 3 I think...?
-                return ImageFilterPipeline(
-                    str("M,"+
-                    str(round( (self.t2s['x-um'] ) / 2)) + ',' +
-                    str(round( (self.t2s['y-um'] ) / 2)) + ',' +
-                    str(round( (self.t2s['z-um'] ) / 2)) ) +  
-                    str("-M,0,0,1")  )
         
         if (self.downsampling_img == 'target'):
             # source-to-target resolution diff. used to comptue filter radius
